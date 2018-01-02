@@ -1,0 +1,14 @@
+#!/bin/sh -e
+
+# based on https://blogs.wcode.org/2013/09/howto-boot-your-raspberry-pi-into-a-fullscreen-browser-kiosk/
+
+while true; do
+  # Disable DPMS and screen blanking
+  xset -dpms
+  xset s off
+  xset s noblank
+
+  unclutter &
+  matchbox-window-manager -use_titlebar no &
+  chromium-browser --noerrdialogs --incognito --kiosk {{kiosk_url}}
+done

@@ -1,0 +1,36 @@
+- name: Install common software
+  apt:
+    name:
+      - chromium-browser
+      - matchbox
+      - ttf-mscorefonts-installer
+      - unclutter
+      - xorg
+    state: present
+    update_cache: yes
+  become: true
+  tags: apt,kiosk
+
+- name: Allow anybody to start X
+  ini_file:
+    path: /etc/X11/Xwrapper.config
+    section: null
+    option: allowed_users
+    value: anybody
+  become: true
+  tags: kiosk
+
+- name: Start X at boot time
+  copy:
+    src: rc.local
+    dest: /etc/rc.local
+    mode: 0755
+  become: true
+  tags: kiosk
+
+- name: Configure the start script of the X window manager
+  template:
+    src: xinitrc.j2
+    dest: /home/pi/.xinitrc
+  become: false
+  tags: kiosk
