@@ -12,6 +12,8 @@
     - role: suhlig.simple_systemd_service
       become: true
       vars:
+        systemd:
+          target: graphical.target
         service_binary: kiosk
         program:
           name: kiosk
