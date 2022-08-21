@@ -1,4 +1,4 @@
-- name: Install common software
+- name: Common software is installed
   apt:
     name:
       - ttf-mscorefonts-installer
