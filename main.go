@@ -1,21 +1,6 @@
 // based on https://pkg.go.dev/github.com/chromedp/chromedp#example-ExecAllocator
 package main
 
-/*
-Disabling Chromium's password manager seems not possible in preferences, only by policy:
-
-cat /etc/chromium/policies/managed/no-password-management.json
-{
-	"AutofillAddressEnabled": false,
-	"AutofillCreditCardEnabled": false,
-	"PasswordManagerEnabled": false
-}
-
-old: "AutoFillEnabled": false,
-
-// from https://stackoverflow.com/a/55316111/3212907
-*/
-
 import (
 	"context"
 	"fmt"
@@ -45,8 +30,6 @@ func main() {
 	)
 
 	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), opts...)
-
-	// also set up a custom logger
 	taskCtx, cancelContext := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 
 	user := os.Getenv("KIOSK_USER")
