@@ -1,6 +1,23 @@
 # Kiosk
 
-Turns a Raspberry Pi into a simple browser kiosk
+Turns a Raspberry Pi into a simple browser kiosk. A Go program controls a full-screen Chromium browser.
+
+Configuring the Pi is described in the `nerab.raspi` role. Make sure the Pi auto-boots into the graphical environment without asking for login credentials (see `raspi-config`).
+
+# TODO
+
+- `unclutter -idle 0.5 -root &` if needed
+- [splash screen at boot](https://github.com/guysoft/FullPageOS/blob/master/src/modules/fullpageos/filesystem/root_init/etc/systemd/system/splashscreen.service)
+
+# Deployment
+
+## Build the `kiosk` binary
+
+For the Raspberry Pi 4, this is
+
+```command
+$ GOARM=7 GOARCH=arm GOOS=linux go build
+```
 
 ## Prerequisites on the Deployer's Workstation
 
@@ -18,34 +35,12 @@ Turns a Raspberry Pi into a simple browser kiosk
   $ ansible-galaxy install -r roles.yml
   ```
 
-* Update `hosts` with the IP address of the host(s) to deploy to. The deploy is more convenient if you can ssh into them without having to enter a password.
-
-## Prerequisites on the Raspi
-
-* Configure some generic settings using `sudo raspi-config`:
-  - Change password of user `pi`
-  - Set the hostname (`kiosk`)
-  - Enable SSH server
-  - Expand root filesystem
-* Connect via Ethernet
-* Copy the public SSH key to the pi with `ssh-copy-id pi@kiosk`.
+* Update `inventory.yml` with the host(s) to deploy to
 
 ## Deploy
 
 Run the playbook:
 
 ```bash
-$ ansible-playbook -i hosts site.yml
+$ ansible-playbook playbook.yml
 ```
-
-## WiFi
-
-If you want to configure the WiFi network, create a file `wifi.yml` with the following contents (adapt it to your WIFI settings):
-
-```yaml
-wlan_country: DE
-wlan_ssid: your-wlan-ssid
-wlan_password: your-wlan-password
-```
-
-If `wifi.yml` is not present, WiFi will not be configured.

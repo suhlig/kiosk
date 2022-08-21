@@ -1,2 +1,0 @@
-#!/bin/sh -e
-su - pi -c 'startx' &

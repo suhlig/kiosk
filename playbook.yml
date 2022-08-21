@@ -1,0 +1,40 @@
+---
+- name: Kiosk
+  hosts: all
+
+  roles:
+    - role: nerab.raspi
+      become: true
+      tags: [ kiosk, nerab ]
+    - role: kiosk
+      become: true
+      tags: [ kiosk, software ]
+    - role: suhlig.simple_systemd_service
+      become: true
+      vars:
+        service_binary: kiosk
+        program:
+          name: kiosk
+          description: Display kiosk
+          runtime_user: "{{ ansible_user_id }}"
+          binary: "{{ service_binary }}"
+          environment:
+            - KIOSK_USER="{{ kiosk.user }}"
+            - KIOSK_PASSWORD="{{ kiosk.password }}"
+            - DISPLAY=:0.0
+      tags: [ kiosk, systemd, service ]
+    - role: geerlingguy.ntp
+      vars:
+        ntp_timezone: Europe/Berlin
+        ntp_manage_config: true
+        ntp_servers:
+          - ptbtime1.ptb.de iburst
+          - ptbtime2.ptb.de iburst
+          - ptbtime3.ptb.de iburst
+      become: true
+    - role: jnv.unattended-upgrades
+      vars:
+        unattended_origins_patterns:
+          - 'origin=Raspbian,codename=${distro_codename},label=Raspbian'
+        unattended_automatic_reboot_time: "05:46"
+      become: true

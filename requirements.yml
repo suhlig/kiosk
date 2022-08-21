@@ -1,0 +1,6 @@
+- src: nerab.raspi
+- src: geerlingguy.ntp
+- src: jnv.unattended-upgrades
+- name: suhlig.simple_systemd_service
+  src: https://github.com/uhlig-it/ansible-role-simple-systemd-service
+  version: master
