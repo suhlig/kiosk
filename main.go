@@ -4,13 +4,16 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/chromedp/chromedp"
 )
+
+func stdErrLogger(msg string, values ...interface{}) {
+	fmt.Fprintln(os.Stderr, msg, values)
+}
 
 func main() {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -30,7 +33,7 @@ func main() {
 	)
 
 	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), opts...)
-	taskCtx, cancelContext := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	taskCtx, cancelContext := chromedp.NewContext(allocCtx, chromedp.WithLogf(stdErrLogger))
 
 	user := os.Getenv("KIOSK_USER")
 
@@ -58,7 +61,8 @@ func main() {
 	err := chromedp.Run(taskCtx, actions...)
 
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
 	var quit = make(chan struct{})
