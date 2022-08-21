@@ -69,7 +69,7 @@ func main() {
 		typeText(`//input[@name="password"]`, password),
 		chromedp.Click(`//button[@type='submit']`, chromedp.NodeVisible),
 		chromedp.WaitVisible(`//a[@href='/profile']`),
-		chromedp.Navigate(`https://grafana.uhlig.it/d/yP_VJJmVz/power?refresh=30s&from=now-1h&to=now&kiosk`),
+		chromedp.Navigate(`https://grafana.uhlig.it/playlists/play/1?kiosk&autofitpanels`),
 	}
 
 	err := chromedp.Run(taskCtx, actions...)
