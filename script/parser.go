@@ -1,0 +1,106 @@
+package script
+
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v2"
+)
+
+func Parse(markup []byte) ([]*Tab, error) {
+	var tabs []*Tab
+
+	err := yaml.Unmarshal(markup, &tabs)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, tab := range tabs {
+		for _, rawSteps := range tab.RawSteps {
+			var step Step
+
+			for typ, value := range rawSteps {
+				switch typ {
+				case "go":
+					g0, ok := value.(string)
+					if !ok {
+						err = fmt.Errorf("unable to parse '%v' as value of a Go step", value)
+					} else {
+						step = Go(g0)
+					}
+				case "wait":
+					wt, ok := value.(string)
+					if !ok {
+						err = fmt.Errorf("unable to parse '%v' as value of a Wait step", value)
+					} else {
+						step = Wait(wt)
+					}
+				case "click":
+					clk, ok := value.(string)
+					if !ok {
+						err = fmt.Errorf("unable to parse '%v' as value of a Click step", value)
+					} else {
+						step = Click(clk)
+					}
+				case "type":
+					t, ok := value.(map[interface{}]interface{})
+
+					if !ok {
+						err = fmt.Errorf("unable to parse '%v' as value of a Type step", value)
+					} else {
+						var typeClear Type
+
+						for k, v := range t {
+							switch k {
+							case "xpath":
+								tt, ok := v.(string)
+
+								if ok {
+									typeClear.XPath = tt
+								} else {
+									err = fmt.Errorf("unable to convert '%v' as 'xpath' value of a Type step", v)
+								}
+							case "value":
+								tt, ok := v.(string)
+
+								if ok {
+									typeClear.Value = tt
+								} else {
+									err = fmt.Errorf("unable to convert '%v' as 'value' value of a Type step", v)
+								}
+							case "secret":
+								tt, ok := v.(string)
+
+								if ok {
+									typeClear.Secret = tt
+								} else {
+									err = fmt.Errorf("unable to convert '%v' as 'secret' value of a Type step", v)
+								}
+							default:
+								err = fmt.Errorf("'%v' is not a known key for a Type step", k)
+							}
+						}
+
+						step = &typeClear
+					}
+				default:
+					err = fmt.Errorf("'%v' is not a known step type", typ)
+				}
+			}
+
+			if err != nil {
+				return nil, err
+			}
+
+			validationError := step.Validate()
+
+			if validationError != nil {
+				return nil, validationError
+			}
+
+			tab.Steps = append(tab.Steps, step)
+		}
+	}
+
+	return tabs, nil
+}

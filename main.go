@@ -4,84 +4,220 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
+	"github.com/jessevdk/go-flags"
+	"uhlig.it/kiosk/script"
 )
 
 func stdErrLogger(msg string, values ...interface{}) {
 	fmt.Fprintln(os.Stderr, msg, values)
 }
 
+var opts struct {
+	Verbose  bool          `short:"v" long:"verbose" description:"Print verbose information"`
+	Kiosk    bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
+	Interval time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab" default:"5s"`
+	Args     struct {
+		Scriptfile string
+	} `positional-args:"yes" required:"yes"`
+}
+
 func main() {
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+	_, err := flags.Parse(&opts)
+
+	if err != nil {
+		os.Exit(1)
+	}
+
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("start-fullscreen", opts.Kiosk),
+		chromedp.Flag("kiosk", opts.Kiosk),
 		chromedp.Flag("headless", false),
-		chromedp.Flag("hide-scrollbars", true),
 		chromedp.Flag("enable-automation", false),
-		chromedp.Flag("start-fullscreen", true),
-		chromedp.Flag("kiosk", true),
-		chromedp.Flag("noerrdialogs", true),
-		chromedp.Flag("disable-session-crashed-bubble", true),
-		chromedp.Flag("simulate-outdated-no-au", "Tue, 31 Dec 2099 23:59:59 GMT"),
-		chromedp.Flag("disable-component-update", true),
-		chromedp.Flag("disable-translate", true),
-		chromedp.Flag("disable-infobars", true),
-		chromedp.Flag("disable-features", "Translate"),
-		chromedp.Flag("disk-cache-dir", "/dev/null"),
+		// chromedp.Flag("hide-scrollbars", true),
+		// chromedp.Flag("noerrdialogs", true),
+		// chromedp.Flag("disable-session-crashed-bubble", true),
+		// chromedp.Flag("simulate-outdated-no-au", "Tue, 31 Dec 2099 23:59:59 GMT"),
+		// chromedp.Flag("disable-component-update", true),
+		// chromedp.Flag("disable-translate", true),
+		// chromedp.Flag("disable-infobars", true),
+		// chromedp.Flag("disable-features", "Translate"),
+		// chromedp.Flag("disk-cache-dir", "/dev/null"),
 	)
 
-	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), opts...)
-	taskCtx, cancelContext := chromedp.NewContext(allocCtx, chromedp.WithLogf(stdErrLogger))
+	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 
-	user := os.Getenv("KIOSK_USER")
+	scriptBytes, err := os.ReadFile(opts.Args.Scriptfile)
 
-	if user == "" {
-		fmt.Fprintln(os.Stderr, "Environment variable KIOSK_USER must not be empty")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading scriptfile %v: %v", opts.Args.Scriptfile, err)
 		os.Exit(1)
 	}
 
-	password := os.Getenv("KIOSK_PASSWORD")
+	tabs, err := script.Parse(scriptBytes)
 
-	if password == "" {
-		fmt.Fprintln(os.Stderr, "Environment variable KIOSK_PASSWORD must not be empty")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing scriptfile %v: %v", opts.Args.Scriptfile, err)
 		os.Exit(1)
 	}
 
-	actions := []chromedp.Action{
-		chromedp.Navigate(`https://grafana.uhlig.it/login`),
-		typeText(`//input[@name="user"]`, user),
-		typeText(`//input[@name="password"]`, password),
-		chromedp.Click(`//button[@type='submit']`, chromedp.NodeVisible),
-		chromedp.WaitVisible(`//a[@href='/profile']`),
-		chromedp.Navigate(`https://grafana.uhlig.it/playlists/play/1?kiosk&autofitpanels`),
+	// first tab is special
+	windowCtx, cancelContext := chromedp.NewContext(allocCtx, chromedp.WithLogf(stdErrLogger))
+
+	if opts.Verbose {
+		log.Printf("Performing actions for tab %s\n", tabs[0])
+
+		for _, a := range tabs[0].Steps {
+			log.Printf("  * %s\n", a)
+		}
 	}
 
-	err := chromedp.Run(taskCtx, actions...)
+	err = chromedp.Run(windowCtx, tabs[0].Actions()...)
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
-	var quit = make(chan struct{})
+	var ctxe []*context.Context // keep all contexts in scope
 
+	// all other tabs are equal
+	for _, tab := range tabs[1:] {
+		if opts.Verbose {
+			log.Printf("Performing actions for tab %s:\n", tab)
+
+			for _, a := range tab.Steps {
+				log.Printf("  * %s\n", a)
+			}
+		}
+
+		ctx, err := newTab(&windowCtx, tab.Actions()...)
+
+		if err != nil {
+			log.Println(err)
+		} else {
+			ctxe = append(ctxe, ctx)
+		}
+	}
+
+	ticker := time.NewTicker(opts.Interval)
+	quitTicker := make(chan struct{})
+	go func() {
+		var (
+			targetID target.ID
+			err      error
+		)
+
+		if opts.Verbose {
+			log.Printf("Switching tabs every %v\n", opts.Interval)
+		}
+
+		for {
+			select {
+			case <-ticker.C:
+				targetID, err = switchToNextTab(windowCtx, targetID)
+
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v", err)
+				}
+			case <-quitTicker:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+
+	quitProgram := make(chan struct{})
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
+		// not sure if this is needed...
+		for i := 0; i < len(ctxe); i++ {
+			ctxe = remove(ctxe, i)
+		}
 		cancelAllocator()
 		cancelContext()
-		close(quit)
+		close(quitProgram)
 	}()
 
-	<-quit
+	<-quitProgram
 }
 
-func typeText(selector, value string) chromedp.Tasks {
-	return chromedp.Tasks{
-		chromedp.WaitVisible(selector),
-		chromedp.SendKeys(selector, value),
+func switchToNextTab(ctx context.Context, currentPage target.ID) (target.ID, error) {
+	targets, err := chromedp.Targets(ctx)
+
+	if err != nil {
+		log.Fatalln(err)
 	}
+
+	var pageTargets []target.ID
+
+	for _, t := range targets {
+		if t.Type == "page" {
+			pageTargets = append(pageTargets, t.TargetID)
+		}
+	}
+
+	for i, p := range pageTargets {
+		if p == currentPage || currentPage == "" {
+			var pageToBeActivated target.ID
+
+			if i == len(pageTargets)-1 {
+				pageToBeActivated = pageTargets[0]
+			} else {
+				pageToBeActivated = pageTargets[i+1]
+			}
+
+			err := Activate(ctx, pageToBeActivated)
+
+			if err != nil {
+				return "", err
+			}
+
+			return pageToBeActivated, nil
+		}
+	}
+
+	return currentPage, nil // no change
+}
+
+func Activate(ctx context.Context, targetID target.ID) error {
+	err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctxt context.Context) error {
+		err := target.ActivateTarget(targetID).Do(ctxt)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}))
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return nil
+}
+
+func newTab(windowCtx *context.Context, actions ...chromedp.Action) (*context.Context, error) {
+	ctx, _ := chromedp.NewContext(*windowCtx)
+
+	err := chromedp.Run(ctx, actions...)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &ctx, nil
+}
+
+func remove(slice []*context.Context, s int) []*context.Context {
+	return append(slice[:s], slice[s+1:]...)
 }
