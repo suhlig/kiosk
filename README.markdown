@@ -4,6 +4,23 @@ Turns a Raspberry Pi into a simple browser kiosk. A Go program controls a full-s
 
 Configuring the Pi is described in the `nerab.raspi` role. Make sure the Pi auto-boots into the graphical environment without asking for login credentials (see `raspi-config`).
 
+The URL of the browser is described in a YAML file that is passed as argument to the `kiosk` binary. If multiple entries are present, they will be opened as browser tabs and switched between every `--interval`; e.g. `10s`.
+
+Example:
+
+```yaml
+- name: org
+  script:
+    - go: https://example.org
+    - click: //p/a
+- name: com
+  script:
+    - go: https://example.com
+- name: net
+  script:
+    - go: https://example.net
+```
+
 # TODO
 
 - `unclutter -idle 0.5 -root &` if needed

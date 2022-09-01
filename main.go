@@ -23,7 +23,7 @@ func stdErrLogger(msg string, values ...interface{}) {
 var opts struct {
 	Verbose  bool          `short:"v" long:"verbose" description:"Print verbose information"`
 	Kiosk    bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
-	Interval time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab" default:"5s"`
+	Interval time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
 	Args     struct {
 		Scriptfile string
 	} `positional-args:"yes" required:"yes"`

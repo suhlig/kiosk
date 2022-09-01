@@ -48,7 +48,7 @@ func Parse(markup []byte) ([]*Tab, error) {
 					if !ok {
 						err = fmt.Errorf("unable to parse '%v' as value of a Type step", value)
 					} else {
-						var typeClear Type
+						var typeStep Type
 
 						for k, v := range t {
 							switch k {
@@ -56,7 +56,7 @@ func Parse(markup []byte) ([]*Tab, error) {
 								tt, ok := v.(string)
 
 								if ok {
-									typeClear.XPath = tt
+									typeStep.XPath = tt
 								} else {
 									err = fmt.Errorf("unable to convert '%v' as 'xpath' value of a Type step", v)
 								}
@@ -64,7 +64,7 @@ func Parse(markup []byte) ([]*Tab, error) {
 								tt, ok := v.(string)
 
 								if ok {
-									typeClear.Value = tt
+									typeStep.Value = tt
 								} else {
 									err = fmt.Errorf("unable to convert '%v' as 'value' value of a Type step", v)
 								}
@@ -72,7 +72,7 @@ func Parse(markup []byte) ([]*Tab, error) {
 								tt, ok := v.(string)
 
 								if ok {
-									typeClear.Secret = tt
+									typeStep.Secret = tt
 								} else {
 									err = fmt.Errorf("unable to convert '%v' as 'secret' value of a Type step", v)
 								}
@@ -81,7 +81,7 @@ func Parse(markup []byte) ([]*Tab, error) {
 							}
 						}
 
-						step = &typeClear
+						step = &typeStep
 					}
 				default:
 					err = fmt.Errorf("'%v' is not a known step type", typ)
