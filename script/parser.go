@@ -22,35 +22,35 @@ func Parse(markup []byte) ([]*Tab, error) {
 			for typ, value := range rawSteps {
 				switch typ {
 				case "go":
-					g0, ok := value.(string)
+					goStep, ok := value.(string)
 					if !ok {
 						err = fmt.Errorf("unable to parse '%v' as value of a Go step", value)
 					} else {
-						step = Go(g0)
+						step = Go(goStep)
 					}
 				case "wait":
-					wt, ok := value.(string)
+					waitStep, ok := value.(string)
 					if !ok {
 						err = fmt.Errorf("unable to parse '%v' as value of a Wait step", value)
 					} else {
-						step = Wait(wt)
+						step = Wait(waitStep)
 					}
 				case "click":
-					clk, ok := value.(string)
+					clickStep, ok := value.(string)
 					if !ok {
 						err = fmt.Errorf("unable to parse '%v' as value of a Click step", value)
 					} else {
-						step = Click(clk)
+						step = Click(clickStep)
 					}
 				case "type":
-					t, ok := value.(map[interface{}]interface{})
+					typeAttributes, ok := value.(map[interface{}]interface{})
 
 					if !ok {
 						err = fmt.Errorf("unable to parse '%v' as value of a Type step", value)
 					} else {
 						var typeStep Type
 
-						for k, v := range t {
+						for k, v := range typeAttributes {
 							switch k {
 							case "xpath":
 								tt, ok := v.(string)
@@ -84,7 +84,7 @@ func Parse(markup []byte) ([]*Tab, error) {
 						step = &typeStep
 					}
 				default:
-					err = fmt.Errorf("'%v' is not a known step type", typ)
+					err = fmt.Errorf("'%v' is not a known step", typ)
 				}
 			}
 
