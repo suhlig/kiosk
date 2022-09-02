@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"reflect"
 	"syscall"
 	"time"
 
@@ -111,8 +112,8 @@ func main() {
 	quitTicker := make(chan struct{})
 	go func() {
 		var (
-			targetID target.ID
-			err      error
+			target *target.Info
+			err    error
 		)
 
 		if opts.Verbose {
@@ -122,7 +123,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				targetID, err = switchToNextTab(windowCtx, targetID)
+				target, err = switchToNextTab(windowCtx, target)
 
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v", err)
@@ -151,24 +152,26 @@ func main() {
 	<-quitProgram
 }
 
-func switchToNextTab(ctx context.Context, currentPage target.ID) (target.ID, error) {
+func switchToNextTab(ctx context.Context, currentPage *target.Info) (*target.Info, error) {
 	targets, err := chromedp.Targets(ctx)
 
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	var pageTargets []target.ID
+	var pageTargets []*target.Info
 
 	for _, t := range targets {
 		if t.Type == "page" {
-			pageTargets = append(pageTargets, t.TargetID)
+			pageTargets = append(pageTargets, t)
 		}
 	}
 
+	reverse(pageTargets) // still not quite in the order we created the tabs
+
 	for i, p := range pageTargets {
-		if p == currentPage || currentPage == "" {
-			var pageToBeActivated target.ID
+		if currentPage == nil || p.TargetID == currentPage.TargetID {
+			var pageToBeActivated *target.Info
 
 			if i == len(pageTargets)-1 {
 				pageToBeActivated = pageTargets[0]
@@ -176,10 +179,18 @@ func switchToNextTab(ctx context.Context, currentPage target.ID) (target.ID, err
 				pageToBeActivated = pageTargets[i+1]
 			}
 
-			err := Activate(ctx, pageToBeActivated)
+			if opts.Verbose {
+				if currentPage != nil {
+					log.Printf("Currently active: %v (%v)\n", currentPage.URL, currentPage.TargetID)
+				}
+
+				log.Printf("Activating :%v (%v)\n", pageToBeActivated.URL, pageToBeActivated.TargetID)
+			}
+
+			err := Activate(ctx, pageToBeActivated.TargetID)
 
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 
 			return pageToBeActivated, nil
@@ -220,4 +231,16 @@ func newTab(windowCtx *context.Context, actions ...chromedp.Action) (*context.Co
 
 func remove(slice []*context.Context, s int) []*context.Context {
 	return append(slice[:s], slice[s+1:]...)
+}
+
+func reverse(input interface{}) {
+	inputLen := reflect.ValueOf(input).Len()
+	inputMid := inputLen / 2
+	inputSwap := reflect.Swapper(input)
+
+	for i := 0; i < inputMid; i++ {
+		j := inputLen - i - 1
+
+		inputSwap(i, j)
+	}
 }
