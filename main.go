@@ -4,9 +4,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"reflect"
 	"syscall"
 	"time"
@@ -22,19 +24,31 @@ func stdErrLogger(msg string, values ...interface{}) {
 }
 
 var opts struct {
+	Version  bool          `short:"V" long:"version" description:"Print version information and exit"`
 	Verbose  bool          `short:"v" long:"verbose" description:"Print verbose information"`
 	Kiosk    bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
 	Interval time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
 	Args     struct {
 		Scriptfile string
-	} `positional-args:"yes" required:"yes"`
+	} `positional-args:"yes"`
 }
 
+// ldflags will be set by goreleaser
+var version = "vDEV"
+var commit = "NONE"
+var date = "UNKNOWN"
+
 func main() {
+	log.SetFlags(0) // no timestamp etc. - we have systemd's timestamps in the log anyway
 	_, err := flags.Parse(&opts)
 
 	if err != nil {
 		os.Exit(1)
+	}
+
+	if opts.Version {
+		log.Printf("%s %s (%s), built on %s\n", getProgramName(), version, commit, date)
+		os.Exit(0)
 	}
 
 	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -42,30 +56,27 @@ func main() {
 		chromedp.Flag("kiosk", opts.Kiosk),
 		chromedp.Flag("headless", false),
 		chromedp.Flag("enable-automation", false),
-		// chromedp.Flag("hide-scrollbars", true),
-		// chromedp.Flag("noerrdialogs", true),
-		// chromedp.Flag("disable-session-crashed-bubble", true),
-		// chromedp.Flag("simulate-outdated-no-au", "Tue, 31 Dec 2099 23:59:59 GMT"),
-		// chromedp.Flag("disable-component-update", true),
-		// chromedp.Flag("disable-translate", true),
-		// chromedp.Flag("disable-infobars", true),
-		// chromedp.Flag("disable-features", "Translate"),
-		// chromedp.Flag("disk-cache-dir", "/dev/null"),
 	)
 
 	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 
-	scriptBytes, err := os.ReadFile(opts.Args.Scriptfile)
+	var scriptBytes []byte
+
+	if opts.Args.Scriptfile == "" {
+		scriptBytes, err = io.ReadAll(os.Stdin)
+	} else {
+		scriptBytes, err = os.ReadFile(opts.Args.Scriptfile)
+	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading scriptfile %v: %v", opts.Args.Scriptfile, err)
+		fmt.Fprintf(os.Stderr, "Error: could not read scriptfile: %v\n", err)
 		os.Exit(1)
 	}
 
 	tabs, err := script.Parse(scriptBytes)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing scriptfile %v: %v", opts.Args.Scriptfile, err)
+		fmt.Fprintf(os.Stderr, "Error parsing scriptfile %v: %v\n", opts.Args.Scriptfile, err)
 		os.Exit(1)
 	}
 
@@ -126,7 +137,7 @@ func main() {
 				target, err = switchToNextTab(windowCtx, target)
 
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v", err)
+					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
 				}
 			case <-quitTicker:
 				ticker.Stop()
@@ -243,4 +254,15 @@ func reverse(input interface{}) {
 
 		inputSwap(i, j)
 	}
+}
+
+func getProgramName() string {
+	path, err := os.Executable()
+
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Warning: Could not determine program name; using 'unknown'.")
+		return "unknown"
+	}
+
+	return filepath.Base(path)
 }

@@ -2,10 +2,40 @@
 - name: Kiosk
   hosts: all
 
+  pre_tasks:
+    - name: Lookup binary path from artifacts.json
+      ansible.builtin.set_fact:
+        binary_path: "{{ item['path'] }}"
+      when: |
+        item['goos'] is defined and item['goos'] == 'linux'
+        and item['goarch'] is defined and item['goarch'] == 'arm'
+        and item['goarm'] is defined and item['goarm'] == '7'
+        and item['type'] is defined and item['type'] == 'Binary'
+      loop: "{{ lookup('file', playbook_dir + '/dist/artifacts.json') | from_json }}"
+      tags: [ kiosk, goreleaser, binary, path, artifacts ]
+
+  tasks:
+    - name: Config file is present
+      become: true
+      copy:
+        src: kiosk.yml
+        dest: /etc/kiosk.yml
+        mode: '0644'
+        owner: "{{ ansible_user_id }}"
+      register: config_copied
+      tags: [ kiosk, yaml, config ]
+
+    - name: Service is restarted
+      systemd:
+        name: kiosk.service
+        state: restarted
+      when: config_copied.changed
+      tags: [ kiosk, config, systemd, service ]
+
   roles:
     - role: nerab.raspi
       become: true
-      tags: [ kiosk, nerab ]
+      tags: [ nerab ]
     - role: kiosk
       become: true
       tags: [ kiosk, software ]
@@ -19,10 +49,13 @@
           name: kiosk
           description: Display kiosk
           runtime_user: "{{ ansible_user_id }}"
-          binary: "{{ service_binary }}"
+          binary: "{{ binary_path }}"
+          parameters:
+            - --kiosk
+            - --verbose
+            - --interval 10s
+            - /etc/kiosk.yml
           environment:
-            - KIOSK_USER="{{ kiosk.user }}"
-            - KIOSK_PASSWORD="{{ kiosk.password }}"
             - DISPLAY=:0.0
       tags: [ kiosk, systemd, service ]
     - role: geerlingguy.ntp
@@ -34,9 +67,11 @@
           - ptbtime2.ptb.de iburst
           - ptbtime3.ptb.de iburst
       become: true
+      tags: [ ntp ]
     - role: jnv.unattended-upgrades
       vars:
         unattended_origins_patterns:
           - 'origin=Raspbian,codename=${distro_codename},label=Raspbian'
         unattended_automatic_reboot_time: "05:46"
       become: true
+      tags: [ apt, unattended, upgrade ]

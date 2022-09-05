@@ -1,0 +1,28 @@
+before: { hooks: [ go mod download ] }
+builds:
+  - goos: [ linux, darwin, windows ]
+    goarch: [ amd64, arm ]
+    goarm: [ "7" ]
+    env: [ CGO_ENABLED=0 ]
+archives:
+  - replacements:
+      darwin: Darwin
+      linux: Linux
+      amd64: x86_64
+      arm: RaspberryPi
+      windows: Windows
+checksum: { name_template: "checksums.txt" }
+snapshot: { name_template: "{{ .Tag }}-next" }
+release:
+  name_template: "{{.ProjectName}} release v{{.Version}}"
+  prerelease: auto
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "README"
+publishers:
+  - name: save-release-url
+    cmd: sh -c "echo '{{ .ReleaseURL }}' > dist/release-url.txt"
