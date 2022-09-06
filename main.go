@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/jessevdk/go-flags"
 	"uhlig.it/kiosk/script"
 )
@@ -24,11 +26,14 @@ func stdErrLogger(msg string, values ...interface{}) {
 }
 
 var opts struct {
-	Version  bool          `short:"V" long:"version" description:"Print version information and exit"`
-	Verbose  bool          `short:"v" long:"verbose" description:"Print verbose information"`
-	Kiosk    bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
-	Interval time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
-	Args     struct {
+	Version      bool          `short:"V" long:"version" description:"Print version information and exit"`
+	Verbose      bool          `short:"v" long:"verbose" description:"Print verbose information"`
+	Kiosk        bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
+	Interval     time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
+	MqttClientID string        `short:"c" long:"client-id" description:"client id to use for the MQTT connection"`
+	MqttURL      string        `short:"m" long:"mqtt-url"  description:"URL of the MQTT broker incl. username and password" env:"MQTT_URL"`
+	Topic        string        `short:"t" long:"topic" description:"MQTT topic to subscribe to" required:"yes" default:"kiosk"`
+	Args         struct {
 		Scriptfile string
 	} `positional-args:"yes"`
 }
@@ -40,6 +45,7 @@ var date = "UNKNOWN"
 
 func main() {
 	log.SetFlags(0) // no timestamp etc. - we have systemd's timestamps in the log anyway
+
 	_, err := flags.Parse(&opts)
 
 	if err != nil {
@@ -81,7 +87,7 @@ func main() {
 	}
 
 	// first tab is special
-	windowCtx, cancelContext := chromedp.NewContext(allocCtx, chromedp.WithLogf(stdErrLogger))
+	rootContext, cancelContext := chromedp.NewContext(allocCtx, chromedp.WithLogf(stdErrLogger))
 
 	if opts.Verbose {
 		log.Printf("Performing actions for tab %s\n", tabs[0])
@@ -91,14 +97,14 @@ func main() {
 		}
 	}
 
-	err = chromedp.Run(windowCtx, tabs[0].Actions()...)
+	err = chromedp.Run(rootContext, tabs[0].Actions()...)
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
-	var ctxe []*context.Context // keep all contexts in scope
+	var ctxe []context.Context // keep all contexts in scope
 
 	// all other tabs are equal
 	for _, tab := range tabs[1:] {
@@ -110,7 +116,7 @@ func main() {
 			}
 		}
 
-		ctx, err := newTab(&windowCtx, tab.Actions()...)
+		ctx, err := newTab(rootContext, tab.Actions()...)
 
 		if err != nil {
 			log.Println(err)
@@ -119,32 +125,121 @@ func main() {
 		}
 	}
 
-	ticker := time.NewTicker(opts.Interval)
-	quitTicker := make(chan struct{})
-	go func() {
-		var (
-			target *target.Info
-			err    error
-		)
+	quitTabSwitcher := make(chan struct{})
+	go switchTabs(rootContext, quitTabSwitcher)
 
+	mqttURL, err := url.Parse(opts.MqttURL)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mqttClientID := opts.MqttClientID
+
+	if mqttClientID == "" {
+		mqttClientID = getProgramName()
+	}
+
+	mqttOpts := mqtt.NewClientOptions().
+		AddBroker(mqttURL.String()).
+		SetClientID(mqttClientID).
+		SetCleanSession(false).
+		SetUsername(mqttURL.User.Username()).
+		SetAutoReconnect(true)
+
+	var target *target.Info
+
+	mqttOpts.OnConnect = func(mqttClient mqtt.Client) {
 		if opts.Verbose {
-			log.Printf("Switching tabs every %v\n", opts.Interval)
+			log.Printf("Connected to MQTT at %v\n", mqttURL.Host)
 		}
 
-		for {
-			select {
-			case <-ticker.C:
-				target, err = switchToNextTab(windowCtx, target)
+		if opts.Verbose {
+			log.Printf("Subscribing to %v\n", opts.Topic)
+		}
+
+		token := mqttClient.Subscribe(opts.Topic, 0, func(c mqtt.Client, m mqtt.Message) {
+
+			message := string(m.Payload())
+
+			if opts.Verbose {
+				log.Printf("Received message '%v'\n", message)
+			}
+
+			switch message {
+			case "pause":
+				if !isClosed(quitTabSwitcher) {
+					close(quitTabSwitcher)
+				}
+			case "next":
+				if !isClosed(quitTabSwitcher) {
+					close(quitTabSwitcher)
+				}
+
+				target, err = switchToNextTab(rootContext, target, true)
 
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
 				}
-			case <-quitTicker:
-				ticker.Stop()
-				return
+			case "previous":
+				if !isClosed(quitTabSwitcher) {
+					close(quitTabSwitcher)
+				}
+
+				target, err = switchToNextTab(rootContext, target, false)
+
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
+				}
+			case "resume":
+				if !isClosed(quitTabSwitcher) {
+					close(quitTabSwitcher)
+				}
+
+				// perform the next switch immediately
+				target, err = switchToNextTab(rootContext, target, false)
+
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
+				}
+
+				quitTabSwitcher = make(chan struct{})
+				go switchTabs(rootContext, quitTabSwitcher)
+			default:
+				log.Printf("Could not interpret MQTT command '%v'\n", message)
 			}
+
+		})
+
+		if !token.WaitTimeout(10 * time.Second) {
+			log.Fatalf("Could not subscribe: %v", token.Error())
 		}
-	}()
+	}
+
+	mqttOpts.OnReconnecting = func(client mqtt.Client, options *mqtt.ClientOptions) {
+		if opts.Verbose {
+			log.Printf("Reconnecting to MQTT at %s\n", mqttURL.String())
+		}
+	}
+
+	password, isSet := mqttURL.User.Password()
+
+	if isSet {
+		mqttOpts.SetPassword(password)
+	}
+
+	if opts.Verbose {
+		mqtt.WARN = log.New(os.Stderr, "WARN ", 0)
+	}
+
+	mqtt.CRITICAL = log.New(os.Stderr, "CRITICAL ", 0)
+	mqtt.ERROR = log.New(os.Stderr, "ERROR ", 0)
+
+	mqttClient := mqtt.NewClient(mqttOpts)
+
+	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
+		log.Fatalf("Could not connect to MQTT: %s", token.Error())
+	}
 
 	quitProgram := make(chan struct{})
 	c := make(chan os.Signal)
@@ -163,22 +258,16 @@ func main() {
 	<-quitProgram
 }
 
-func switchToNextTab(ctx context.Context, currentPage *target.Info) (*target.Info, error) {
-	targets, err := chromedp.Targets(ctx)
+func switchToNextTab(rootContext context.Context, currentPage *target.Info, forward bool) (*target.Info, error) {
+	pageTargets, err := getPages(rootContext)
 
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	var pageTargets []*target.Info
-
-	for _, t := range targets {
-		if t.Type == "page" {
-			pageTargets = append(pageTargets, t)
-		}
+	if forward {
+		reverse(pageTargets) // still not quite in the order we created the tabs
 	}
-
-	reverse(pageTargets) // still not quite in the order we created the tabs
 
 	for i, p := range pageTargets {
 		if currentPage == nil || p.TargetID == currentPage.TargetID {
@@ -195,10 +284,10 @@ func switchToNextTab(ctx context.Context, currentPage *target.Info) (*target.Inf
 					log.Printf("Currently active: %v (%v)\n", currentPage.URL, currentPage.TargetID)
 				}
 
-				log.Printf("Activating :%v (%v)\n", pageToBeActivated.URL, pageToBeActivated.TargetID)
+				log.Printf("Activating %v (%v)\n", pageToBeActivated.URL, pageToBeActivated.TargetID)
 			}
 
-			err := Activate(ctx, pageToBeActivated.TargetID)
+			err := Activate(rootContext, pageToBeActivated.TargetID)
 
 			if err != nil {
 				return nil, err
@@ -211,9 +300,10 @@ func switchToNextTab(ctx context.Context, currentPage *target.Info) (*target.Inf
 	return currentPage, nil // no change
 }
 
-func Activate(ctx context.Context, targetID target.ID) error {
-	err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctxt context.Context) error {
-		err := target.ActivateTarget(targetID).Do(ctxt)
+func Activate(parentContext context.Context, targetID target.ID) error {
+	err := chromedp.Run(parentContext, chromedp.ActionFunc(func(ctx context.Context) error {
+		err := target.ActivateTarget(targetID).Do(ctx)
+
 		if err != nil {
 			return err
 		}
@@ -228,8 +318,8 @@ func Activate(ctx context.Context, targetID target.ID) error {
 	return nil
 }
 
-func newTab(windowCtx *context.Context, actions ...chromedp.Action) (*context.Context, error) {
-	ctx, _ := chromedp.NewContext(*windowCtx)
+func newTab(parent context.Context, actions ...chromedp.Action) (context.Context, error) {
+	ctx, _ := chromedp.NewContext(parent)
 
 	err := chromedp.Run(ctx, actions...)
 
@@ -237,10 +327,10 @@ func newTab(windowCtx *context.Context, actions ...chromedp.Action) (*context.Co
 		return nil, err
 	}
 
-	return &ctx, nil
+	return ctx, nil
 }
 
-func remove(slice []*context.Context, s int) []*context.Context {
+func remove(slice []context.Context, s int) []context.Context {
 	return append(slice[:s], slice[s+1:]...)
 }
 
@@ -265,4 +355,61 @@ func getProgramName() string {
 	}
 
 	return filepath.Base(path)
+}
+
+func switchTabs(parent context.Context, quitTicker chan struct{}) {
+	var (
+		target *target.Info
+		err    error
+	)
+
+	if opts.Verbose {
+		log.Printf("Starting to switch tabs every %v\n", opts.Interval)
+	}
+
+	ticker := time.NewTicker(opts.Interval)
+
+	for {
+		select {
+		case <-ticker.C:
+			target, err = switchToNextTab(parent, target, true)
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
+			}
+		case <-quitTicker:
+			ticker.Stop()
+
+			if opts.Verbose {
+				log.Println("Stopping tab switching")
+			}
+			return
+		}
+	}
+}
+
+func isClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+	}
+
+	return false
+}
+
+func getPages(ctx context.Context) (pageTargets []*target.Info, err error) {
+	targets, err := chromedp.Targets(ctx)
+
+	if err != nil {
+		return
+	}
+
+	for _, t := range targets {
+		if t.Type == "page" {
+			pageTargets = append(pageTargets, t)
+		}
+	}
+
+	return
 }

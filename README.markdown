@@ -23,6 +23,9 @@ Example:
 
 # TODO
 
+- accept actions via MQTT, e.g. to switch tabs (saves us from having to implement keyboard handling)
+- test pages for presence of some element, otherwise close tab and restart (e.g. when authenticated session expires)
+- refresh pages that are not self-refreshing (browser-reload or recreate the tab)
 - `unclutter -idle 0.5 -root &` if needed
 - [splash screen at boot](https://github.com/guysoft/FullPageOS/blob/master/src/modules/fullpageos/filesystem/root_init/etc/systemd/system/splashscreen.service)
 

@@ -57,6 +57,7 @@
             - /etc/kiosk.yml
           environment:
             - DISPLAY=:0.0
+            - MQTT_URL="{{ mqtt_url }}"
       tags: [ kiosk, systemd, service ]
     - role: geerlingguy.ntp
       vars:
