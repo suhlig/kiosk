@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,7 +33,6 @@ var opts struct {
 	Interval     time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
 	MqttClientID string        `short:"c" long:"client-id" description:"client id to use for the MQTT connection"`
 	MqttURL      string        `short:"m" long:"mqtt-url"  description:"URL of the MQTT broker incl. username and password" env:"MQTT_URL"`
-	Topic        string        `short:"t" long:"topic" description:"MQTT topic to subscribe to" required:"yes" default:"kiosk"`
 	Args         struct {
 		Scriptfile string
 	} `positional-args:"yes"`
@@ -122,123 +122,19 @@ func main() {
 			log.Println(err)
 		} else {
 			ctxe = append(ctxe, ctx)
+
+			if opts.Verbose {
+			}
 		}
 	}
 
 	quitTabSwitcher := make(chan struct{})
 	go switchTabs(rootContext, quitTabSwitcher)
 
-	mqttURL, err := url.Parse(opts.MqttURL)
+	err = configureMqtt(rootContext, quitTabSwitcher)
 
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	mqttClientID := opts.MqttClientID
-
-	if mqttClientID == "" {
-		mqttClientID = getProgramName()
-	}
-
-	mqttOpts := mqtt.NewClientOptions().
-		AddBroker(mqttURL.String()).
-		SetClientID(mqttClientID).
-		SetCleanSession(false).
-		SetUsername(mqttURL.User.Username()).
-		SetAutoReconnect(true)
-
-	var target *target.Info
-
-	mqttOpts.OnConnect = func(mqttClient mqtt.Client) {
-		if opts.Verbose {
-			log.Printf("Connected to MQTT at %v\n", mqttURL.Host)
-		}
-
-		if opts.Verbose {
-			log.Printf("Subscribing to %v\n", opts.Topic)
-		}
-
-		token := mqttClient.Subscribe(opts.Topic, 0, func(c mqtt.Client, m mqtt.Message) {
-
-			message := string(m.Payload())
-
-			if opts.Verbose {
-				log.Printf("Received message '%v'\n", message)
-			}
-
-			switch message {
-			case "pause":
-				if !isClosed(quitTabSwitcher) {
-					close(quitTabSwitcher)
-				}
-			case "next":
-				if !isClosed(quitTabSwitcher) {
-					close(quitTabSwitcher)
-				}
-
-				target, err = switchToNextTab(rootContext, target, true)
-
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
-				}
-			case "previous":
-				if !isClosed(quitTabSwitcher) {
-					close(quitTabSwitcher)
-				}
-
-				target, err = switchToNextTab(rootContext, target, false)
-
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
-				}
-			case "resume":
-				if !isClosed(quitTabSwitcher) {
-					close(quitTabSwitcher)
-				}
-
-				// perform the next switch immediately
-				target, err = switchToNextTab(rootContext, target, false)
-
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
-				}
-
-				quitTabSwitcher = make(chan struct{})
-				go switchTabs(rootContext, quitTabSwitcher)
-			default:
-				log.Printf("Could not interpret MQTT command '%v'\n", message)
-			}
-
-		})
-
-		if !token.WaitTimeout(10 * time.Second) {
-			log.Fatalf("Could not subscribe: %v", token.Error())
-		}
-	}
-
-	mqttOpts.OnReconnecting = func(client mqtt.Client, options *mqtt.ClientOptions) {
-		if opts.Verbose {
-			log.Printf("Reconnecting to MQTT at %s\n", mqttURL.String())
-		}
-	}
-
-	password, isSet := mqttURL.User.Password()
-
-	if isSet {
-		mqttOpts.SetPassword(password)
-	}
-
-	if opts.Verbose {
-		mqtt.WARN = log.New(os.Stderr, "WARN ", 0)
-	}
-
-	mqtt.CRITICAL = log.New(os.Stderr, "CRITICAL ", 0)
-	mqtt.ERROR = log.New(os.Stderr, "ERROR ", 0)
-
-	mqttClient := mqtt.NewClient(mqttOpts)
-
-	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
-		log.Fatalf("Could not connect to MQTT: %s", token.Error())
+		log.Fatalf("Could not connect to MQTT: %s", err)
 	}
 
 	quitProgram := make(chan struct{})
@@ -412,4 +308,129 @@ func getPages(ctx context.Context) (pageTargets []*target.Info, err error) {
 	}
 
 	return
+}
+
+func configureMqtt(rootContext context.Context, quitTabSwitcher chan struct{}) error {
+	mqttURL, err := url.Parse(opts.MqttURL)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mqttClientID := opts.MqttClientID
+
+	if mqttClientID == "" {
+		mqttClientID = getProgramName()
+	}
+
+	mqttOpts := mqtt.NewClientOptions().
+		AddBroker(mqttURL.String()).
+		SetClientID(mqttClientID).
+		SetCleanSession(false).
+		SetUsername(mqttURL.User.Username()).
+		SetAutoReconnect(true)
+
+	mqttOpts.OnConnect = onConnectFunc(mqttURL, rootContext, quitTabSwitcher)
+
+	mqttOpts.OnReconnecting = func(client mqtt.Client, options *mqtt.ClientOptions) {
+		if opts.Verbose {
+			log.Printf("Reconnecting to MQTT at %s\n", mqttURL.String())
+		}
+	}
+
+	password, isSet := mqttURL.User.Password()
+
+	if isSet {
+		mqttOpts.SetPassword(password)
+	}
+
+	if opts.Verbose {
+		mqtt.WARN = log.New(os.Stderr, "WARN ", 0)
+	}
+
+	mqtt.CRITICAL = log.New(os.Stderr, "CRITICAL ", 0)
+	mqtt.ERROR = log.New(os.Stderr, "ERROR ", 0)
+
+	mqttClient := mqtt.NewClient(mqttOpts)
+
+	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
+		return token.Error()
+	}
+
+	return nil
+}
+
+func onConnectFunc(mqttURL *url.URL, rootContext context.Context, quitTabSwitcher chan struct{}) func(mqtt.Client) {
+	var (
+		target *target.Info
+		err    error
+	)
+
+	topic := strings.TrimPrefix(mqttURL.Path, "/")
+
+	return func(mqttClient mqtt.Client) {
+		if opts.Verbose {
+			log.Printf("Connected to MQTT at %v\n", mqttURL.Host)
+		}
+
+		if opts.Verbose {
+			log.Printf("Subscribing to %v\n", topic)
+		}
+
+		token := mqttClient.Subscribe(topic, 0, func(c mqtt.Client, m mqtt.Message) {
+			message := string(m.Payload())
+
+			if opts.Verbose {
+				log.Printf("Received message '%v'\n", message)
+			}
+
+			switch message {
+			case "pause":
+				if !isClosed(quitTabSwitcher) {
+					close(quitTabSwitcher)
+				}
+			case "next":
+				if !isClosed(quitTabSwitcher) {
+					close(quitTabSwitcher)
+				}
+
+				target, err = switchToNextTab(rootContext, target, true)
+
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
+				}
+			case "previous":
+				if !isClosed(quitTabSwitcher) {
+					close(quitTabSwitcher)
+				}
+
+				target, err = switchToNextTab(rootContext, target, false)
+
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
+				}
+			case "resume":
+				if !isClosed(quitTabSwitcher) {
+					close(quitTabSwitcher)
+				}
+
+				// perform the next switch immediately
+				target, err = switchToNextTab(rootContext, target, false)
+
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
+				}
+
+				quitTabSwitcher = make(chan struct{})
+				go switchTabs(rootContext, quitTabSwitcher)
+			default:
+				log.Printf("Could not interpret MQTT command '%v'\n", message)
+			}
+
+		})
+
+		if !token.WaitTimeout(10 * time.Second) {
+			log.Fatalf("Could not subscribe: %v", token.Error())
+		}
+	}
 }
