@@ -172,10 +172,6 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		// not sure if this is needed...
-		for i := 0; i < len(ctxe); i++ {
-			ctxe = remove(ctxe, i)
-		}
 		cancelAllocator()
 		cancelContext()
 		close(quitProgram)
@@ -262,10 +258,6 @@ func newTab(parent context.Context, actions ...chromedp.Action) (context.Context
 	}
 
 	return ctx, nil
-}
-
-func remove(slice []context.Context, s int) []context.Context {
-	return append(slice[:s], slice[s+1:]...)
 }
 
 func reverse(input interface{}) {
