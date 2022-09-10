@@ -173,33 +173,8 @@ func main() {
 		close(quitProgram)
 	}()
 
-	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			w.Header().Set("Content-Type", "text/html")
-
-			fmt.Fprintf(w, "<ul>\n")
-
-			for id := range images {
-				fmt.Fprintf(w, `<li><img src="/%v"/>`, id)
-				fmt.Fprintln(w)
-			}
-
-			fmt.Fprintf(w, "</ul>\n")
-		} else {
-			targetID := target.ID(strings.TrimPrefix(r.URL.Path, "/"))
-
-			img, found := images[targetID]
-
-			if !found {
-				http.NotFound(w, r)
-				fmt.Fprintf(w, "No image for target ID %v", targetID)
-				return
-			}
-
-			w.Header().Set("Content-Type", "image/png")
-			w.Write(img.Get())
-		}
-	}))
+	http.Handle("/", createRootHandler(images))
+	http.Handle("/image/", createImageHandler(images))
 
 	go func() {
 		log.Println("Server started at port 8080")
@@ -531,5 +506,37 @@ func onConnectFunc(mqttURL *url.URL, rootContext context.Context, quitTabSwitche
 		if !token.WaitTimeout(10 * time.Second) {
 			log.Fatalf("Could not subscribe: %v", token.Error())
 		}
+	}
+}
+
+func createRootHandler(images map[target.ID]*Image) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+
+		fmt.Fprintf(w, "<ul>\n")
+
+		for id := range images {
+			fmt.Fprintf(w, `<li><img src="/image/%v"/>`, id)
+			fmt.Fprintln(w)
+		}
+
+		fmt.Fprintf(w, "</ul>\n")
+	}
+}
+
+func createImageHandler(images map[target.ID]*Image) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		targetID := target.ID(strings.TrimPrefix(r.URL.Path, "/image/"))
+
+		img, found := images[targetID]
+
+		if !found {
+			http.NotFound(w, r)
+			fmt.Fprintf(w, "No image for target ID %v", targetID)
+			return
+		}
+
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(img.Get())
 	}
 }
