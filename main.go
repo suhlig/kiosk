@@ -101,6 +101,7 @@ func main() {
 	}
 
 	var ctxe []context.Context
+	images := make(map[target.ID]*Image)
 
 	// first tab is special
 	rootContext, cancelContext := chromedp.NewContext(
@@ -124,7 +125,11 @@ func main() {
 		log.Fatalf("Could not create tab '%v': %v", tabs[0].Name, err)
 	}
 
-	// TODO save screenshot right after creating the tab
+	err = saveScreenshot(rootContext, chromedp.FromContext(rootContext).Target.TargetID, images)
+
+	if err != nil {
+		log.Fatalf("Could not take screenshot of tab '%v': %v", tabs[0].Name, err)
+	}
 
 	ctxe = append(ctxe, rootContext)
 
@@ -144,12 +149,15 @@ func main() {
 			log.Fatalf("Could not create tab '%v': %v", tab.Name, err)
 		}
 
-		// TODO save screenshot right after creating the tab
+		err = saveScreenshot(ctx, chromedp.FromContext(ctx).Target.TargetID, images)
+
+		if err != nil {
+			log.Fatalf("Could not take screenshot of tab '%v': %v", tabs[0].Name, err)
+		}
 
 		ctxe = append(ctxe, ctx)
 	}
 
-	images := make(map[target.ID]*Image)
 	quitTabSwitcher := make(chan struct{})
 	go switchTabsForever(ctxe, quitTabSwitcher, images)
 
@@ -286,7 +294,7 @@ func getProgramName() string {
 func switchToTab(rootContext, targetContext context.Context, images map[target.ID]*Image) (target.ID, error) {
 	targetID := chromedp.FromContext(targetContext).Target.TargetID
 
-	// works, but do we really need the ActionFunc?
+	// TODO do we really need the ActionFunc?
 	err := chromedp.Run(rootContext, chromedp.ActionFunc(func(ctx context.Context) error {
 		err := target.ActivateTarget(targetID).Do(ctx)
 
@@ -301,27 +309,33 @@ func switchToTab(rootContext, targetContext context.Context, images map[target.I
 		return "", err
 	}
 
-	var buf []byte
+	err = saveScreenshot(targetContext, targetID, images)
 
-	// the key thing seems to be that Chrome waits for the page described by ctx to be _active_
-	if err := chromedp.Run(targetContext, chromedp.CaptureScreenshot(&buf)); err != nil {
+	if err != nil {
 		return "", err
-	} else {
-		img, found := images[targetID]
-
-		if !found {
-			img = &Image{}
-			images[targetID] = img
-		}
-
-		img.Store(buf)
-
-		if opts.Verbose {
-			log.Printf("stored image of tab %v\n", targetID)
-		}
 	}
 
 	return targetID, nil
+}
+
+func saveScreenshot(ctx context.Context, targetID target.ID, images map[target.ID]*Image) error {
+	var buf []byte
+
+	// Chrome waits for the page described by ctx to be _active_
+	if err := chromedp.Run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
+		return err
+	}
+
+	img, found := images[targetID]
+
+	if !found {
+		img = &Image{}
+		images[targetID] = img
+	}
+
+	img.Store(buf)
+
+	return nil
 }
 
 func switchTabsForever(ctxe []context.Context, quitTicker chan struct{}, images map[target.ID]*Image) error {
