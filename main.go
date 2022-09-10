@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,8 +23,23 @@ import (
 	"uhlig.it/kiosk/script"
 )
 
-func stdErrLogger(msg string, values ...interface{}) {
-	fmt.Fprintln(os.Stderr, msg, values)
+type Image struct {
+	mutex sync.RWMutex
+	data  []byte
+}
+
+func (d *Image) Store(data []byte) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	d.data = data
+}
+
+func (d *Image) Get() []byte {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	return d.data
 }
 
 var opts struct {
@@ -83,8 +100,15 @@ func main() {
 		log.Fatalf("Could not parse scriptfile %v: %v\n", opts.Args.Scriptfile, err)
 	}
 
+	var ctxe []context.Context
+
 	// first tab is special
-	rootContext, cancelContext := chromedp.NewContext(allocCtx, chromedp.WithLogf(stdErrLogger))
+	rootContext, cancelContext := chromedp.NewContext(
+		allocCtx,
+		chromedp.WithLogf(func(msg string, values ...interface{}) {
+			log.Printf(msg, values...)
+		}),
+	)
 
 	if opts.Verbose {
 		log.Printf("Performing actions for tab %s\n", tabs[0])
@@ -100,7 +124,9 @@ func main() {
 		log.Fatalf("Could not create tab '%v': %v", tabs[0].Name, err)
 	}
 
-	var ctxe []context.Context // keep all contexts in scope
+	// TODO save screenshot right after creating the tab
+
+	ctxe = append(ctxe, rootContext)
 
 	// all other tabs are equal
 	for _, tab := range tabs[1:] {
@@ -115,17 +141,17 @@ func main() {
 		ctx, err := newTab(rootContext, tab.Actions()...)
 
 		if err != nil {
-			log.Println(err)
-		} else {
-			ctxe = append(ctxe, ctx)
-
-			if opts.Verbose {
-			}
+			log.Fatalf("Could not create tab '%v': %v", tab.Name, err)
 		}
+
+		// TODO save screenshot right after creating the tab
+
+		ctxe = append(ctxe, ctx)
 	}
 
+	images := make(map[target.ID]*Image)
 	quitTabSwitcher := make(chan struct{})
-	go switchTabs(rootContext, quitTabSwitcher)
+	go switchTabsForever(ctxe, quitTabSwitcher, images)
 
 	err = configureMqtt(rootContext, quitTabSwitcher)
 
@@ -147,10 +173,43 @@ func main() {
 		close(quitProgram)
 	}()
 
+	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			w.Header().Set("Content-Type", "text/html")
+
+			fmt.Fprintf(w, "<ul>\n")
+
+			for id := range images {
+				fmt.Fprintf(w, `<li><img src="/%v"/>`, id)
+				fmt.Fprintln(w)
+			}
+
+			fmt.Fprintf(w, "</ul>\n")
+		} else {
+			targetID := target.ID(strings.TrimPrefix(r.URL.Path, "/"))
+
+			img, found := images[targetID]
+
+			if !found {
+				http.NotFound(w, r)
+				fmt.Fprintf(w, "No image for target ID %v", targetID)
+				return
+			}
+
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(img.Get())
+		}
+	}))
+
+	go func() {
+		log.Println("Server started at port 8080")
+		log.Fatal(http.ListenAndServe(":8080", nil))
+	}()
+
 	<-quitProgram
 }
 
-func switchToNextTab(rootContext context.Context, currentPage *target.Info, forward bool) (*target.Info, error) {
+func switchToNextTabOld(rootContext context.Context, currentPage *target.Info, forward bool) (*target.Info, error) {
 	pageTargets, err := getPages(rootContext)
 
 	if err != nil {
@@ -249,35 +308,77 @@ func getProgramName() string {
 	return filepath.Base(path)
 }
 
-func switchTabs(parent context.Context, quitTicker chan struct{}) {
-	var (
-		target *target.Info
-		err    error
-	)
+func switchToTab(rootContext, targetContext context.Context, images map[target.ID]*Image) (target.ID, error) {
+	targetID := chromedp.FromContext(targetContext).Target.TargetID
 
-	if opts.Verbose {
-		log.Printf("Starting to switch tabs every %v\n", opts.Interval)
+	// works, but do we really need the ActionFunc?
+	err := chromedp.Run(rootContext, chromedp.ActionFunc(func(ctx context.Context) error {
+		err := target.ActivateTarget(targetID).Do(ctx)
+
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}))
+
+	if err != nil {
+		return "", err
 	}
 
-	ticker := time.NewTicker(opts.Interval)
+	var buf []byte
 
-	for {
-		select {
-		case <-ticker.C:
-			target, err = switchToNextTab(parent, target, true)
+	// the key thing seems to be that Chrome waits for the page described by ctx to be _active_
+	if err := chromedp.Run(targetContext, chromedp.CaptureScreenshot(&buf)); err != nil {
+		return "", err
+	} else {
+		img, found := images[targetID]
 
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
-			}
-		case <-quitTicker:
-			ticker.Stop()
+		if !found {
+			img = &Image{}
+			images[targetID] = img
+		}
 
-			if opts.Verbose {
-				log.Println("Stopping tab switching")
-			}
-			return
+		img.Store(buf)
+
+		if opts.Verbose {
+			log.Printf("stored image of tab %v\n", targetID)
 		}
 	}
+
+	return targetID, nil
+}
+
+func switchTabsForever(ctxe []context.Context, quitTicker chan struct{}, images map[target.ID]*Image) error {
+	var (
+		currentTab  target.ID
+		err         error
+		nextContext context.Context
+	)
+
+	for range time.NewTicker(opts.Interval).C {
+		for i, ctx := range ctxe {
+			targetID := chromedp.FromContext(ctx).Target.TargetID
+
+			// is this the current tab?
+			if currentTab == "" || targetID == currentTab {
+				// grab the context of the next tab or cycle to the beginning
+				if i == len(ctxe)-1 {
+					nextContext = ctxe[0]
+				} else {
+					nextContext = ctxe[i+1]
+				}
+			}
+		}
+
+		currentTab, err = switchToTab(ctxe[0], nextContext, images)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func isClosed(ch <-chan struct{}) bool {
@@ -390,7 +491,7 @@ func onConnectFunc(mqttURL *url.URL, rootContext context.Context, quitTabSwitche
 					close(quitTabSwitcher)
 				}
 
-				target, err = switchToNextTab(rootContext, target, true)
+				target, err = switchToNextTabOld(rootContext, target, true)
 
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
@@ -400,25 +501,27 @@ func onConnectFunc(mqttURL *url.URL, rootContext context.Context, quitTabSwitche
 					close(quitTabSwitcher)
 				}
 
-				target, err = switchToNextTab(rootContext, target, false)
+				target, err = switchToNextTabOld(rootContext, target, false)
 
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
 				}
 			case "resume":
-				if !isClosed(quitTabSwitcher) {
-					close(quitTabSwitcher)
-				}
+				// TODO
 
-				// perform the next switch immediately
-				target, err = switchToNextTab(rootContext, target, false)
+				// if !isClosed(quitTabSwitcher) {
+				// 	close(quitTabSwitcher)
+				// }
 
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
-				}
+				// // perform the next switch immediately
+				// target, err = switchToNextTab(rootContext, target, false)
 
-				quitTabSwitcher = make(chan struct{})
-				go switchTabs(rootContext, quitTabSwitcher)
+				// if err != nil {
+				// 	fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
+				// }
+
+				// quitTabSwitcher = make(chan struct{})
+				// go switchTabs(rootContext, quitTabSwitcher)
 			default:
 				log.Printf("Could not interpret MQTT command '%v'\n", message)
 			}
