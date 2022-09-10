@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"text/template"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -35,6 +37,9 @@ var opts struct {
 var version = "vDEV"
 var commit = "NONE"
 var date = "UNKNOWN"
+
+//go:embed *.html.tmpl
+var htmlAssets embed.FS
 
 func main() {
 	log.SetFlags(0) // no timestamp etc. - we have systemd's timestamps in the log anyway
@@ -107,6 +112,7 @@ func main() {
 
 	http.Handle("/", createRootHandler(kiosk))
 	http.Handle("/image/", createImageHandler(kiosk))
+	http.Handle("/activate/", createActivateHandler(kiosk))
 
 	go func() {
 		log.Println("Server started at port 8080")
@@ -217,17 +223,20 @@ func createConnectHandler(kiosk *kiosk.Kiosk, mqttURL *url.URL) func(mqtt.Client
 }
 
 func createRootHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
+	tmpl, err := template.ParseFS(htmlAssets, "index.html.tmpl")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-
-		fmt.Fprintf(w, "<ul>\n")
-
-		for id := range kiosk.Images() {
-			fmt.Fprintf(w, `<li><img src="/image/%v"/>`, id)
-			fmt.Fprintln(w)
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
 		}
 
-		fmt.Fprintf(w, "</ul>\n")
+		w.Header().Set("Content-Type", "text/html")
+		tmpl.Execute(w, kiosk.ImageIDs())
 	}
 }
 
@@ -244,6 +253,26 @@ func createImageHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "image/png")
-		w.Write(img.Get())
+		w.Write(img.GetData())
+	}
+}
+
+func createActivateHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Only POST allowed here", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if err := r.ParseForm(); err != nil {
+			log.Printf("Could not parse form parameters: %v", err)
+			http.Error(w, "Could not parse form parameters", http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		log.Printf("TODO activate tab with ID %v", r.FormValue("id"))
+
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 	}
 }

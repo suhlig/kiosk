@@ -40,10 +40,11 @@ func (k *Kiosk) GetImage(id string) (*Image, bool) {
 	return nil, false
 }
 
-func (k *Kiosk) Images() (images []*Image) {
+func (k *Kiosk) ImageIDs() (images []string) {
 	for _, i := range k.images {
-		images = append(images, i)
+		images = append(images, i.GetID())
 	}
+
 	return
 }
 
@@ -285,7 +286,7 @@ func (kiosk *Kiosk) saveScreenshot(ctx context.Context, targetID target.ID) erro
 		kiosk.images[targetID] = img
 	}
 
-	img.Store(buf)
+	img.Store(targetID.String(), buf)
 
 	return nil
 }

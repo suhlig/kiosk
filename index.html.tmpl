@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiosk</title>
+    <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
+    <style>
+      .gallery {
+        display: grid;
+        grid-gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      }
+
+      .gallery form a img {
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+{{/*
+    <header>
+      <nav>
+        <a href="/" class="current">Home</a>
+        <a href="/about">About</a>
+      </nav>
+    </header>
+*/}}
+
+    <main>
+      <div class="gallery">
+      {{ range . }}
+        <form method="post" action="/activate/">
+          <input type="hidden" name="id" value="{{ . }}" />
+          <a onclick="this.parentNode.submit();">
+            <img src="/image/{{ . }}"/>
+          </a>
+        </form>
+      {{ end }}
+      </div>
+    </main>
+
+{{/*
+    <footer>
+      <p>Thanks to <a href="https://simplecss.org/">simple.css</a>.</p>
+    </footer>
+*/}}
+  </body>
+</html>

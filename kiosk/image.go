@@ -3,20 +3,29 @@ package kiosk
 import "sync"
 
 type Image struct {
+	id    string
 	mutex sync.RWMutex
 	data  []byte
 }
 
-func (d *Image) Store(data []byte) {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
+func (i *Image) Store(id string, data []byte) {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
 
-	d.data = data
+	i.id = id
+	i.data = data
 }
 
-func (d *Image) Get() []byte {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
+func (i *Image) GetData() []byte {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 
-	return d.data
+	return i.data
+}
+
+func (i *Image) GetID() string {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
+
+	return i.id
 }
