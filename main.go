@@ -1,4 +1,3 @@
-// based on https://pkg.go.dev/github.com/chromedp/chromedp#example-ExecAllocator
 package main
 
 import (
@@ -49,7 +48,7 @@ func main() {
 	_, err := flags.Parse(&opts)
 
 	if err != nil {
-		os.Exit(1)
+		log.Fatal(err)
 	}
 
 	if opts.Version {
@@ -75,15 +74,13 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: could not read scriptfile: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Could not read scriptfile: %v\n", err)
 	}
 
 	tabs, err := script.Parse(scriptBytes)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing scriptfile %v: %v\n", opts.Args.Scriptfile, err)
-		os.Exit(1)
+		log.Fatalf("Could not parse scriptfile %v: %v\n", opts.Args.Scriptfile, err)
 	}
 
 	// first tab is special
@@ -100,8 +97,7 @@ func main() {
 	err = chromedp.Run(rootContext, tabs[0].Actions()...)
 
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		log.Fatalf("Could not create tab '%v': %v", tabs[0].Name, err)
 	}
 
 	var ctxe []context.Context // keep all contexts in scope
@@ -314,7 +310,7 @@ func configureMqtt(rootContext context.Context, quitTabSwitcher chan struct{}) e
 	mqttURL, err := url.Parse(opts.MqttURL)
 
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	mqttClientID := opts.MqttClientID
@@ -345,11 +341,11 @@ func configureMqtt(rootContext context.Context, quitTabSwitcher chan struct{}) e
 	}
 
 	if opts.Verbose {
-		mqtt.WARN = log.New(os.Stderr, "WARN ", 0)
+		mqtt.WARN = log.New(os.Stderr, "MQTT WARN ", 0)
 	}
 
-	mqtt.CRITICAL = log.New(os.Stderr, "CRITICAL ", 0)
-	mqtt.ERROR = log.New(os.Stderr, "ERROR ", 0)
+	mqtt.CRITICAL = log.New(os.Stderr, "MQTT CRITICAL ", 0)
+	mqtt.ERROR = log.New(os.Stderr, "MQTT ERROR ", 0)
 
 	mqttClient := mqtt.NewClient(mqttOpts)
 
