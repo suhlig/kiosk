@@ -21,9 +21,15 @@ Example:
     - go: https://example.net
 ```
 
+The `kiosk` program accepts commands like `pause`, `resume`, `next`, `previous` via MQTT.
+
+A gallery of tabs is presented via HTTP.
+
 # TODO
 
-- accept actions via MQTT, e.g. to switch tabs (saves us from having to implement keyboard handling)
+- show images in a [grid](https://ehtmlu.com/blog/simple-css-image-grid/) or [flexbox](https://betterprogramming.pub/how-to-use-css-grid-and-flexbox-to-create-an-image-gallery-924f7896d142)
+- resize images to something _much_ smaller (e.g. [in pure Go](https://gist.github.com/logrusorgru/570d64fd6a051e0441014387b89286ca))
+- accept commands via HTTP POST
 - test pages for presence of some element, otherwise close tab and restart (e.g. when authenticated session expires)
 - refresh pages that are not self-refreshing (browser-reload or recreate the tab)
 - `unclutter -idle 0.5 -root &` if needed

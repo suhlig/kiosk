@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log"
@@ -10,61 +9,15 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"reflect"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
-	"github.com/chromedp/cdproto/target"
-	"github.com/chromedp/chromedp"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/jessevdk/go-flags"
+	"uhlig.it/kiosk/kiosk"
 	"uhlig.it/kiosk/script"
 )
-
-type Image struct {
-	mutex sync.RWMutex
-	data  []byte
-}
-
-func (d *Image) Store(data []byte) {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	d.data = data
-}
-
-func (d *Image) Get() []byte {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
-
-	return d.data
-}
-
-type Kiosk struct {
-	CurrentTab  target.ID
-	AllContexts []context.Context
-	Images      map[target.ID]*Image // TODO implement finder
-}
-
-func NewKiosk() *Kiosk {
-	return &Kiosk{
-		Images: make(map[target.ID]*Image),
-	}
-}
-
-func (t *Kiosk) AppendContext(ctx context.Context) {
-	t.AllContexts = append(t.AllContexts, ctx)
-}
-
-func (t *Kiosk) RootContext() context.Context {
-	return t.AllContexts[0]
-}
-
-func (t *Kiosk) SetCurrentTab(id target.ID) {
-	(*t).CurrentTab = id
-}
 
 var opts struct {
 	Version      bool          `short:"V" long:"version" description:"Print version information and exit"`
@@ -97,15 +50,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("start-fullscreen", opts.Kiosk),
-		chromedp.Flag("kiosk", opts.Kiosk),
-		chromedp.Flag("headless", false),
-		chromedp.Flag("enable-automation", false),
-	)
-
-	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
-
 	var scriptBytes []byte
 
 	if opts.Args.Scriptfile == "" {
@@ -124,66 +68,29 @@ func main() {
 		log.Fatalf("Could not parse scriptfile %v: %v\n", opts.Args.Scriptfile, err)
 	}
 
-	kiosk := NewKiosk()
+	kiosk := kiosk.NewKiosk().
+		WithInterval(opts.Interval).
+		WithVerbose(opts.Verbose).
+		WithFullScreen(opts.Kiosk)
 
 	// first tab is special
-	rootContext, cancelContext := chromedp.NewContext(
-		allocCtx,
-		chromedp.WithLogf(func(msg string, values ...interface{}) {
-			log.Printf(msg, values...)
-		}),
-	)
-
-	if opts.Verbose {
-		log.Printf("Performing actions for tab %s\n", tabs[0])
-
-		for _, a := range tabs[0].Steps {
-			log.Printf("  * %s\n", a)
-		}
-	}
-
-	err = chromedp.Run(rootContext, tabs[0].Actions()...)
+	err = kiosk.FirstTab(tabs[0])
 
 	if err != nil {
-		log.Fatalf("Could not create tab '%v': %v", tabs[0].Name, err)
+		log.Fatal(err)
 	}
-
-	err = saveScreenshot(rootContext, chromedp.FromContext(rootContext).Target.TargetID, kiosk.Images)
-
-	if err != nil {
-		log.Fatalf("Could not take screenshot of tab '%v': %v", tabs[0].Name, err)
-	}
-
-	kiosk.AppendContext(rootContext)
 
 	// all other tabs are equal
 	for _, tab := range tabs[1:] {
-		if opts.Verbose {
-			log.Printf("Performing actions for tab %s:\n", tab)
-
-			for _, a := range tab.Steps {
-				log.Printf("  * %s\n", a)
-			}
-		}
-
-		ctx, err := newTab(rootContext, tab.Actions()...)
+		err = kiosk.AdditionalTab(tab)
 
 		if err != nil {
-			log.Fatalf("Could not create tab '%v': %v", tab.Name, err)
+			log.Fatal(err)
 		}
-
-		err = saveScreenshot(ctx, chromedp.FromContext(ctx).Target.TargetID, kiosk.Images)
-
-		if err != nil {
-			log.Fatalf("Could not take screenshot of tab '%v': %v", tabs[0].Name, err)
-		}
-
-		kiosk.AppendContext(ctx)
 	}
 
-	quitTabSwitcher := make(chan struct{})
-	go switchTabsForever(kiosk, quitTabSwitcher)
-	err = configureMqtt(kiosk, quitTabSwitcher)
+	kiosk.StartTabSwitching()
+	err = configureMqtt(kiosk)
 
 	if err != nil {
 		log.Fatalf("Could not connect to MQTT: %s", err)
@@ -194,8 +101,7 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		cancelAllocator()
-		cancelContext()
+		kiosk.Close()
 		close(quitProgram)
 	}()
 
@@ -210,48 +116,6 @@ func main() {
 	<-quitProgram
 }
 
-func Activate(parentContext context.Context, targetID target.ID) error {
-	err := chromedp.Run(parentContext, chromedp.ActionFunc(func(ctx context.Context) error {
-		err := target.ActivateTarget(targetID).Do(ctx)
-
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}))
-
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	return nil
-}
-
-func newTab(parent context.Context, actions ...chromedp.Action) (context.Context, error) {
-	ctx, _ := chromedp.NewContext(parent)
-
-	err := chromedp.Run(ctx, actions...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return ctx, nil
-}
-
-func reverse(input interface{}) {
-	inputLen := reflect.ValueOf(input).Len()
-	inputMid := inputLen / 2
-	inputSwap := reflect.Swapper(input)
-
-	for i := 0; i < inputMid; i++ {
-		j := inputLen - i - 1
-
-		inputSwap(i, j)
-	}
-}
-
 func getProgramName() string {
 	path, err := os.Executable()
 
@@ -263,121 +127,7 @@ func getProgramName() string {
 	return filepath.Base(path)
 }
 
-func switchToTab(kiosk *Kiosk, targetContext context.Context) error {
-	targetID := chromedp.FromContext(targetContext).Target.TargetID
-
-	// TODO do we really need the ActionFunc?
-	err := chromedp.Run(kiosk.RootContext(), chromedp.ActionFunc(func(ctx context.Context) error {
-		err := target.ActivateTarget(targetID).Do(ctx)
-
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}))
-
-	if err != nil {
-		return err
-	}
-
-	err = saveScreenshot(targetContext, targetID, kiosk.Images)
-
-	if err != nil {
-		return err
-	}
-
-	kiosk.SetCurrentTab(targetID)
-
-	return nil
-}
-
-func saveScreenshot(ctx context.Context, targetID target.ID, images map[target.ID]*Image) error {
-	var buf []byte
-
-	// Chrome waits for the page described by ctx to be _active_
-	if err := chromedp.Run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
-		return err
-	}
-
-	img, found := images[targetID]
-
-	if !found {
-		img = &Image{}
-		images[targetID] = img
-	}
-
-	img.Store(buf)
-
-	return nil
-}
-
-func switchTabsForever(kiosk *Kiosk, quitTabSwitcher chan struct{}) error {
-	ticker := time.NewTicker(opts.Interval)
-
-	if opts.Verbose {
-		log.Println("Starting tab switching")
-	}
-
-	for {
-		select {
-		case <-ticker.C:
-			nextContext, err := findNextTab(kiosk, true)
-
-			if err != nil {
-				return err
-			}
-
-			err = switchToTab(kiosk, nextContext)
-
-			if err != nil {
-				return err
-			}
-		case <-quitTabSwitcher:
-			ticker.Stop()
-
-			if opts.Verbose {
-				log.Println("Stopping tab switching")
-			}
-
-			return nil
-		}
-	}
-}
-
-func findNextTab(kiosk *Kiosk, forward bool) (context.Context, error) {
-	if !forward {
-		reverse(kiosk.AllContexts)
-	}
-
-	for i, ctx := range kiosk.AllContexts {
-		targetID := chromedp.FromContext(ctx).Target.TargetID
-
-		// is this the current tab?
-		if kiosk.CurrentTab == "" || targetID == kiosk.CurrentTab {
-			// grab the context of the next tab or cycle to the beginning
-			if i == len(kiosk.AllContexts)-1 {
-				return kiosk.RootContext(), nil
-			} else {
-				return kiosk.AllContexts[i+1], nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("could not find the current tab %v", kiosk.CurrentTab)
-}
-
-func isClosed(ch <-chan struct{}) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-	}
-
-	return false
-}
-
-func configureMqtt(kiosk *Kiosk, quitTabSwitcher chan struct{}) error {
+func configureMqtt(kiosk *kiosk.Kiosk) error {
 	mqttURL, err := url.Parse(opts.MqttURL)
 
 	if err != nil {
@@ -397,7 +147,7 @@ func configureMqtt(kiosk *Kiosk, quitTabSwitcher chan struct{}) error {
 		SetUsername(mqttURL.User.Username()).
 		SetAutoReconnect(true)
 
-	mqttOpts.OnConnect = createConnectHandler(kiosk, mqttURL, quitTabSwitcher)
+	mqttOpts.OnConnect = createConnectHandler(kiosk, mqttURL)
 
 	mqttOpts.OnReconnecting = func(client mqtt.Client, options *mqtt.ClientOptions) {
 		if opts.Verbose {
@@ -427,7 +177,7 @@ func configureMqtt(kiosk *Kiosk, quitTabSwitcher chan struct{}) error {
 	return nil
 }
 
-func createConnectHandler(kiosk *Kiosk, mqttURL *url.URL, quitTabSwitcher chan struct{}) func(mqtt.Client) {
+func createConnectHandler(kiosk *kiosk.Kiosk, mqttURL *url.URL) func(mqtt.Client) {
 	topic := strings.TrimPrefix(mqttURL.Path, "/")
 
 	return func(mqttClient mqtt.Client) {
@@ -448,43 +198,13 @@ func createConnectHandler(kiosk *Kiosk, mqttURL *url.URL, quitTabSwitcher chan s
 
 			switch command {
 			case "pause":
-				pauseTabSwitching(quitTabSwitcher)
+				kiosk.PauseTabSwitching()
 			case "resume":
-				pauseTabSwitching(quitTabSwitcher)
-				quitTabSwitcher = make(chan struct{})
-				go switchTabsForever(kiosk, quitTabSwitcher)
+				kiosk.StartTabSwitching()
 			case "next":
-				pauseTabSwitching(quitTabSwitcher)
-
-				nextContext, err := findNextTab(kiosk, true)
-
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				err = switchToTab(kiosk, nextContext)
-
-				if err != nil {
-					log.Println(err)
-					return
-				}
+				kiosk.NextTab()
 			case "previous":
-				pauseTabSwitching(quitTabSwitcher)
-
-				previousContext, err := findNextTab(kiosk, false)
-
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				err = switchToTab(kiosk, previousContext)
-
-				if err != nil {
-					log.Println(err)
-					return
-				}
+				kiosk.PreviousTab()
 			default:
 				log.Printf("Could not interpret MQTT command '%v'\n", command)
 			}
@@ -496,19 +216,13 @@ func createConnectHandler(kiosk *Kiosk, mqttURL *url.URL, quitTabSwitcher chan s
 	}
 }
 
-func pauseTabSwitching(quitTabSwitcher chan struct{}) {
-	if !isClosed(quitTabSwitcher) {
-		close(quitTabSwitcher)
-	}
-}
-
-func createRootHandler(kiosk *Kiosk) http.HandlerFunc {
+func createRootHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 
 		fmt.Fprintf(w, "<ul>\n")
 
-		for id := range kiosk.Images {
+		for id := range kiosk.Images() {
 			fmt.Fprintf(w, `<li><img src="/image/%v"/>`, id)
 			fmt.Fprintln(w)
 		}
@@ -517,15 +231,15 @@ func createRootHandler(kiosk *Kiosk) http.HandlerFunc {
 	}
 }
 
-func createImageHandler(kiosk *Kiosk) http.HandlerFunc {
+func createImageHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		targetID := target.ID(strings.TrimPrefix(r.URL.Path, "/image/"))
+		imageID := strings.TrimPrefix(r.URL.Path, "/image/")
 
-		img, found := kiosk.Images[targetID]
+		img, found := kiosk.GetImage(imageID)
 
 		if !found {
 			http.NotFound(w, r)
-			fmt.Fprintf(w, "No image for target ID %v", targetID)
+			fmt.Fprintf(w, "No image for target ID %v", imageID)
 			return
 		}
 
