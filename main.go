@@ -299,11 +299,6 @@ func saveScreenshot(ctx context.Context, targetID target.ID, images map[target.I
 }
 
 func switchTabsForever(currentTab *Tab, ctxe []context.Context, quitTabSwitcher chan struct{}, images map[target.ID]*Image) error {
-	var (
-		err         error
-		nextContext context.Context
-	)
-
 	ticker := time.NewTicker(opts.Interval)
 
 	if opts.Verbose {
@@ -313,18 +308,10 @@ func switchTabsForever(currentTab *Tab, ctxe []context.Context, quitTabSwitcher 
 	for {
 		select {
 		case <-ticker.C:
-			for i, ctx := range ctxe {
-				targetID := chromedp.FromContext(ctx).Target.TargetID
+			nextContext, err := findNextTab(currentTab, ctxe, true)
 
-				// is this the current tab?
-				if currentTab.ID == "" || targetID == currentTab.ID {
-					// grab the context of the next tab or cycle to the beginning
-					if i == len(ctxe)-1 {
-						nextContext = ctxe[0]
-					} else {
-						nextContext = ctxe[i+1]
-					}
-				}
+			if err != nil {
+				return err
 			}
 
 			err = switchToTab(currentTab, ctxe[0], nextContext, images)
@@ -342,6 +329,28 @@ func switchTabsForever(currentTab *Tab, ctxe []context.Context, quitTabSwitcher 
 			return nil
 		}
 	}
+}
+
+func findNextTab(currentTab *Tab, ctxe []context.Context, forward bool) (context.Context, error) {
+	if !forward {
+		reverse(ctxe)
+	}
+
+	for i, ctx := range ctxe {
+		targetID := chromedp.FromContext(ctx).Target.TargetID
+
+		// is this the current tab?
+		if currentTab.ID == "" || targetID == currentTab.ID {
+			// grab the context of the next tab or cycle to the beginning
+			if i == len(ctxe)-1 {
+				return ctxe[0], nil
+			} else {
+				return ctxe[i+1], nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("could not find the current tab %v", currentTab.ID)
 }
 
 func isClosed(ch <-chan struct{}) bool {
