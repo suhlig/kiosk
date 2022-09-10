@@ -42,6 +42,14 @@ func (d *Image) Get() []byte {
 	return d.data
 }
 
+type Tab struct {
+	ID target.ID
+}
+
+func (t *Tab) Update(id target.ID) {
+	(*t).ID = id
+}
+
 var opts struct {
 	Version      bool          `short:"V" long:"version" description:"Print version information and exit"`
 	Verbose      bool          `short:"v" long:"verbose" description:"Print verbose information"`
@@ -158,10 +166,10 @@ func main() {
 		ctxe = append(ctxe, ctx)
 	}
 
+	currentTab := &Tab{}
 	quitTabSwitcher := make(chan struct{})
-	go switchTabsForever(ctxe, quitTabSwitcher, images)
-
-	err = configureMqtt(rootContext, quitTabSwitcher)
+	go switchTabsForever(currentTab, ctxe, quitTabSwitcher, images)
+	err = configureMqtt(currentTab, rootContext, ctxe, quitTabSwitcher, images)
 
 	if err != nil {
 		log.Fatalf("Could not connect to MQTT: %s", err)
@@ -186,48 +194,6 @@ func main() {
 	}()
 
 	<-quitProgram
-}
-
-func switchToNextTabOld(rootContext context.Context, currentPage *target.Info, forward bool) (*target.Info, error) {
-	pageTargets, err := getPages(rootContext)
-
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	if forward {
-		reverse(pageTargets) // still not quite in the order we created the tabs
-	}
-
-	for i, p := range pageTargets {
-		if currentPage == nil || p.TargetID == currentPage.TargetID {
-			var pageToBeActivated *target.Info
-
-			if i == len(pageTargets)-1 {
-				pageToBeActivated = pageTargets[0]
-			} else {
-				pageToBeActivated = pageTargets[i+1]
-			}
-
-			if opts.Verbose {
-				if currentPage != nil {
-					log.Printf("Currently active: %v (%v)\n", currentPage.URL, currentPage.TargetID)
-				}
-
-				log.Printf("Activating %v (%v)\n", pageToBeActivated.URL, pageToBeActivated.TargetID)
-			}
-
-			err := Activate(rootContext, pageToBeActivated.TargetID)
-
-			if err != nil {
-				return nil, err
-			}
-
-			return pageToBeActivated, nil
-		}
-	}
-
-	return currentPage, nil // no change
 }
 
 func Activate(parentContext context.Context, targetID target.ID) error {
@@ -283,7 +249,7 @@ func getProgramName() string {
 	return filepath.Base(path)
 }
 
-func switchToTab(rootContext, targetContext context.Context, images map[target.ID]*Image) (target.ID, error) {
+func switchToTab(currentTab *Tab, rootContext, targetContext context.Context, images map[target.ID]*Image) error {
 	targetID := chromedp.FromContext(targetContext).Target.TargetID
 
 	// TODO do we really need the ActionFunc?
@@ -298,16 +264,18 @@ func switchToTab(rootContext, targetContext context.Context, images map[target.I
 	}))
 
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	err = saveScreenshot(targetContext, targetID, images)
 
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	return targetID, nil
+	currentTab.Update(targetID)
+
+	return nil
 }
 
 func saveScreenshot(ctx context.Context, targetID target.ID, images map[target.ID]*Image) error {
@@ -330,36 +298,50 @@ func saveScreenshot(ctx context.Context, targetID target.ID, images map[target.I
 	return nil
 }
 
-func switchTabsForever(ctxe []context.Context, quitTicker chan struct{}, images map[target.ID]*Image) error {
+func switchTabsForever(currentTab *Tab, ctxe []context.Context, quitTabSwitcher chan struct{}, images map[target.ID]*Image) error {
 	var (
-		currentTab  target.ID
 		err         error
 		nextContext context.Context
 	)
 
-	for range time.NewTicker(opts.Interval).C {
-		for i, ctx := range ctxe {
-			targetID := chromedp.FromContext(ctx).Target.TargetID
+	ticker := time.NewTicker(opts.Interval)
 
-			// is this the current tab?
-			if currentTab == "" || targetID == currentTab {
-				// grab the context of the next tab or cycle to the beginning
-				if i == len(ctxe)-1 {
-					nextContext = ctxe[0]
-				} else {
-					nextContext = ctxe[i+1]
-				}
-			}
-		}
-
-		currentTab, err = switchToTab(ctxe[0], nextContext, images)
-
-		if err != nil {
-			return err
-		}
+	if opts.Verbose {
+		log.Println("Starting tab switching")
 	}
 
-	return nil
+	for {
+		select {
+		case <-ticker.C:
+			for i, ctx := range ctxe {
+				targetID := chromedp.FromContext(ctx).Target.TargetID
+
+				// is this the current tab?
+				if currentTab.ID == "" || targetID == currentTab.ID {
+					// grab the context of the next tab or cycle to the beginning
+					if i == len(ctxe)-1 {
+						nextContext = ctxe[0]
+					} else {
+						nextContext = ctxe[i+1]
+					}
+				}
+			}
+
+			err = switchToTab(currentTab, ctxe[0], nextContext, images)
+
+			if err != nil {
+				return err
+			}
+		case <-quitTabSwitcher:
+			ticker.Stop()
+
+			if opts.Verbose {
+				log.Println("Stopping tab switching")
+			}
+
+			return nil
+		}
+	}
 }
 
 func isClosed(ch <-chan struct{}) bool {
@@ -372,23 +354,7 @@ func isClosed(ch <-chan struct{}) bool {
 	return false
 }
 
-func getPages(ctx context.Context) (pageTargets []*target.Info, err error) {
-	targets, err := chromedp.Targets(ctx)
-
-	if err != nil {
-		return
-	}
-
-	for _, t := range targets {
-		if t.Type == "page" {
-			pageTargets = append(pageTargets, t)
-		}
-	}
-
-	return
-}
-
-func configureMqtt(rootContext context.Context, quitTabSwitcher chan struct{}) error {
+func configureMqtt(currentTab *Tab, rootContext context.Context, ctxe []context.Context, quitTabSwitcher chan struct{}, images map[target.ID]*Image) error {
 	mqttURL, err := url.Parse(opts.MqttURL)
 
 	if err != nil {
@@ -408,7 +374,7 @@ func configureMqtt(rootContext context.Context, quitTabSwitcher chan struct{}) e
 		SetUsername(mqttURL.User.Username()).
 		SetAutoReconnect(true)
 
-	mqttOpts.OnConnect = onConnectFunc(mqttURL, rootContext, quitTabSwitcher)
+	mqttOpts.OnConnect = createConnectHandler(currentTab, mqttURL, rootContext, ctxe, quitTabSwitcher, images)
 
 	mqttOpts.OnReconnecting = func(client mqtt.Client, options *mqtt.ClientOptions) {
 		if opts.Verbose {
@@ -438,12 +404,7 @@ func configureMqtt(rootContext context.Context, quitTabSwitcher chan struct{}) e
 	return nil
 }
 
-func onConnectFunc(mqttURL *url.URL, rootContext context.Context, quitTabSwitcher chan struct{}) func(mqtt.Client) {
-	var (
-		target *target.Info
-		err    error
-	)
-
+func createConnectHandler(currentTab *Tab, mqttURL *url.URL, rootContext context.Context, ctxe []context.Context, quitTabSwitcher chan struct{}, images map[target.ID]*Image) func(mqtt.Client) {
 	topic := strings.TrimPrefix(mqttURL.Path, "/")
 
 	return func(mqttClient mqtt.Client) {
@@ -464,54 +425,33 @@ func onConnectFunc(mqttURL *url.URL, rootContext context.Context, quitTabSwitche
 
 			switch message {
 			case "pause":
-				if !isClosed(quitTabSwitcher) {
-					close(quitTabSwitcher)
-				}
-			case "next":
-				if !isClosed(quitTabSwitcher) {
-					close(quitTabSwitcher)
-				}
-
-				target, err = switchToNextTabOld(rootContext, target, true)
-
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
-				}
-			case "previous":
-				if !isClosed(quitTabSwitcher) {
-					close(quitTabSwitcher)
-				}
-
-				target, err = switchToNextTabOld(rootContext, target, false)
-
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
-				}
+				pauseTabSwitching(quitTabSwitcher)
 			case "resume":
+				pauseTabSwitching(quitTabSwitcher)
+				quitTabSwitcher = make(chan struct{})
+				go switchTabsForever(currentTab, ctxe, quitTabSwitcher, images)
+			case "next":
+				pauseTabSwitching(quitTabSwitcher)
+
 				// TODO
+			case "previous":
+				pauseTabSwitching(quitTabSwitcher)
 
-				// if !isClosed(quitTabSwitcher) {
-				// 	close(quitTabSwitcher)
-				// }
-
-				// // perform the next switch immediately
-				// target, err = switchToNextTab(rootContext, target, false)
-
-				// if err != nil {
-				// 	fmt.Fprintf(os.Stderr, "Error switching to next tab: %v\n", err)
-				// }
-
-				// quitTabSwitcher = make(chan struct{})
-				// go switchTabs(rootContext, quitTabSwitcher)
+				// TODO
 			default:
 				log.Printf("Could not interpret MQTT command '%v'\n", message)
 			}
-
 		})
 
 		if !token.WaitTimeout(10 * time.Second) {
 			log.Fatalf("Could not subscribe: %v", token.Error())
 		}
+	}
+}
+
+func pauseTabSwitching(quitTabSwitcher chan struct{}) {
+	if !isClosed(quitTabSwitcher) {
+		close(quitTabSwitcher)
 	}
 }
 
