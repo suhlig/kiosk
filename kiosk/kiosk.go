@@ -64,6 +64,10 @@ func (k *Kiosk) WithFullScreen(fullScreen bool) *Kiosk {
 }
 
 func (k *Kiosk) FirstTab(tab *script.Tab) error {
+	if len(k.allContexts) != 0 {
+		return fmt.Errorf("cannot create another first tab")
+	}
+
 	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("start-fullscreen", k.fullScreen),
 		chromedp.Flag("kiosk", k.fullScreen),
@@ -75,7 +79,7 @@ func (k *Kiosk) FirstTab(tab *script.Tab) error {
 
 	k.cancelAllocator = cancelAllocator
 
-	rootContext, cancelContext := chromedp.NewContext(
+	ctx, cancelContext := chromedp.NewContext(
 		allocCtx,
 		chromedp.WithLogf(func(msg string, values ...interface{}) {
 			log.Printf(msg, values...)
@@ -84,55 +88,16 @@ func (k *Kiosk) FirstTab(tab *script.Tab) error {
 
 	k.cancelContext = cancelContext
 
-	if k.verbose {
-		log.Printf("Performing actions for tab %s\n", tab)
-
-		for _, a := range tab.Steps {
-			log.Printf("  * %s\n", a)
-		}
-	}
-
-	err := chromedp.Run(rootContext, tab.Actions()...)
-
-	if err != nil {
-		return fmt.Errorf("could not create tab '%v': %v", tab.Name, err)
-	}
-
-	err = k.saveScreenshot(rootContext, chromedp.FromContext(rootContext).Target.TargetID)
-
-	if err != nil {
-		return fmt.Errorf("could not take screenshot of tab '%v': %v", tab.Name, err)
-	}
-
-	k.allContexts = append(k.allContexts, rootContext)
-
-	return nil
+	return k.createTab(ctx, tab)
 }
 
 func (k *Kiosk) AdditionalTab(tab *script.Tab) error {
-	if k.verbose {
-		log.Printf("Performing actions for tab %s:\n", tab)
-
-		for _, a := range tab.Steps {
-			log.Printf("  * %s\n", a)
-		}
+	if len(k.allContexts) == 0 {
+		return fmt.Errorf("cannot create another additional tab without a first one")
 	}
 
-	ctx, err := k.newTab(tab.Actions()...)
-
-	if err != nil {
-		return fmt.Errorf("could not create tab '%v': %v", tab.Name, err)
-	}
-
-	err = k.saveScreenshot(ctx, chromedp.FromContext(ctx).Target.TargetID)
-
-	if err != nil {
-		return fmt.Errorf("could not take screenshot of tab '%v': %v", tab.Name, err)
-	}
-
-	k.allContexts = append(k.allContexts, ctx)
-
-	return nil
+	ctx, _ := chromedp.NewContext(k.rootContext())
+	return k.createTab(ctx, tab)
 }
 
 func (k *Kiosk) NextTab() {
@@ -203,6 +168,32 @@ func (k *Kiosk) SwitchToTab(targetID string) error {
 	return k.switchToTab(nextContext)
 }
 
+func (k *Kiosk) createTab(ctx context.Context, tab *script.Tab) error {
+	if k.verbose {
+		log.Printf("Performing actions for tab %s:\n", tab)
+
+		for _, a := range tab.Steps {
+			log.Printf("  * %s\n", a)
+		}
+	}
+
+	err := chromedp.Run(ctx, tab.Actions()...)
+
+	if err != nil {
+		return fmt.Errorf("could not create tab '%v': %v", tab.Name, err)
+	}
+
+	err = k.saveScreenshot(ctx, chromedp.FromContext(ctx).Target.TargetID)
+
+	if err != nil {
+		return fmt.Errorf("could not take screenshot of tab '%v': %v", tab.Name, err)
+	}
+
+	k.allContexts = append(k.allContexts, ctx)
+
+	return nil
+}
+
 func (k *Kiosk) rootContext() context.Context {
 	return k.allContexts[0]
 }
@@ -211,23 +202,9 @@ func (k *Kiosk) setCurrentTab(id target.ID) {
 	(*k).currentTab = id
 }
 
-// TODO inline and check which parts of FirstTab and AddtionalTab do the same
-func (k *Kiosk) newTab(actions ...chromedp.Action) (context.Context, error) {
-	ctx, _ := chromedp.NewContext(k.rootContext())
-
-	err := chromedp.Run(ctx, actions...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return ctx, nil
-}
-
 func (k *Kiosk) switchTabsForever() error {
 	ticker := time.NewTicker(k.interval)
 
-	// TODO move verbose into struct, or somewhere else
 	if k.verbose {
 		log.Println("Starting tab switching")
 	}

@@ -27,7 +27,7 @@ A gallery of tabs is presented via HTTP.
 
 # TODO
 
-- resize images to something _much_ smaller (e.g. [in pure Go](https://gist.github.com/logrusorgru/570d64fd6a051e0441014387b89286ca))
+- make the current page the one shown when loading the controller
 - test pages for presence of some element, otherwise close tab and restart (e.g. when authenticated session expires)
 - refresh pages that are not self-refreshing (browser-reload or recreate the tab)
 - `unclutter -idle 0.5 -root &` if needed
