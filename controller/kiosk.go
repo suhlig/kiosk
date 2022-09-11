@@ -1,4 +1,4 @@
-package kiosk
+package controller
 
 import (
 	"context"

@@ -17,7 +17,7 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/jessevdk/go-flags"
-	"uhlig.it/kiosk/kiosk"
+	"uhlig.it/kiosk/controller"
 	"uhlig.it/kiosk/script"
 )
 
@@ -74,7 +74,7 @@ func main() {
 		log.Fatalf("Could not parse scriptfile %v: %v\n", opts.Args.Scriptfile, err)
 	}
 
-	kiosk := kiosk.NewKiosk().
+	kiosk := controller.NewKiosk().
 		WithInterval(opts.Interval).
 		WithVerbose(opts.Verbose).
 		WithFullScreen(opts.Kiosk)
@@ -127,7 +127,7 @@ func getProgramName() string {
 	return filepath.Base(path)
 }
 
-func configureMqtt(kiosk *kiosk.Kiosk) error {
+func configureMqtt(kiosk *controller.Kiosk) error {
 	mqttURL, err := url.Parse(opts.MqttURL)
 
 	if err != nil {
@@ -177,7 +177,7 @@ func configureMqtt(kiosk *kiosk.Kiosk) error {
 	return nil
 }
 
-func createConnectHandler(kiosk *kiosk.Kiosk, mqttURL *url.URL) func(mqtt.Client) {
+func createConnectHandler(kiosk *controller.Kiosk, mqttURL *url.URL) func(mqtt.Client) {
 	topic := strings.TrimPrefix(mqttURL.Path, "/")
 
 	return func(mqttClient mqtt.Client) {
@@ -216,7 +216,7 @@ func createConnectHandler(kiosk *kiosk.Kiosk, mqttURL *url.URL) func(mqtt.Client
 	}
 }
 
-func createRootHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
+func createRootHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	tmpl, err := template.ParseFS(htmlAssets, "index.html.tmpl")
 
 	if err != nil {
@@ -234,7 +234,7 @@ func createRootHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
 	}
 }
 
-func createImageHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
+func createImageHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		imageID := strings.TrimPrefix(r.URL.Path, "/image/")
 
@@ -251,7 +251,7 @@ func createImageHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
 	}
 }
 
-func createActivateHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
+func createActivateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Only POST allowed here", http.StatusMethodNotAllowed)
