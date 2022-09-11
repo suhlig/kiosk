@@ -76,15 +76,26 @@ func main() {
 
 	kiosk := controller.NewKiosk().
 		WithInterval(opts.Interval).
-		WithVerbose(opts.Verbose).
 		WithFullScreen(opts.Kiosk)
 
 	for _, tab := range tabs {
+		if opts.Verbose {
+			log.Printf("MAIN Performing actions for tab %s:\n", tab)
+
+			for _, a := range tab.Steps {
+				log.Printf("       * %s\n", a)
+			}
+		}
+
 		err = kiosk.NewTab(tab)
 
 		if err != nil {
 			log.Fatal(err)
 		}
+	}
+
+	if opts.Verbose {
+		log.Println("MAIN Starting tab switching")
 	}
 
 	kiosk.StartTabSwitching()
@@ -151,7 +162,7 @@ func configureMqtt(kiosk *controller.Kiosk) error {
 
 	mqttOpts.OnReconnecting = func(client mqtt.Client, options *mqtt.ClientOptions) {
 		if opts.Verbose {
-			log.Printf("Reconnecting to MQTT at %s\n", mqttURL.String())
+			log.Printf("MQTT Reconnecting to %s\n", mqttURL.String())
 		}
 	}
 
@@ -182,36 +193,52 @@ func createConnectHandler(kiosk *controller.Kiosk, mqttURL *url.URL) func(mqtt.C
 
 	return func(mqttClient mqtt.Client) {
 		if opts.Verbose {
-			log.Printf("Connected to MQTT at %v\n", mqttURL.Host)
+			log.Printf("MQTT Connected to  %v\n", mqttURL.Host)
 		}
 
 		if opts.Verbose {
-			log.Printf("Subscribing to %v\n", topic)
+			log.Printf("MQTT Subscribing to %v\n", topic)
 		}
 
 		token := mqttClient.Subscribe(topic, 0, func(c mqtt.Client, m mqtt.Message) {
 			command := string(m.Payload())
 
 			if opts.Verbose {
-				log.Printf("Received MQTT command '%v'\n", command)
+				log.Printf("MQTT Received command '%v'\n", command)
 			}
 
 			switch command {
 			case "pause":
+				if opts.Verbose {
+					log.Println("MQTT Stopping tab switching")
+				}
+
 				kiosk.PauseTabSwitching()
 			case "resume":
+				if opts.Verbose {
+					log.Println("MQTT Resuming tab switching")
+				}
+
 				kiosk.StartTabSwitching()
 			case "next":
+				if opts.Verbose {
+					log.Println("MQTT Switch to next tab")
+				}
+
 				kiosk.NextTab()
 			case "previous":
+				if opts.Verbose {
+					log.Println("MQTT Switch to previous tab")
+				}
+
 				kiosk.PreviousTab()
 			default:
-				log.Printf("Could not interpret MQTT command '%v'\n", command)
+				log.Printf("MQTT Could not interpret command '%v'\n", command)
 			}
 		})
 
 		if !token.WaitTimeout(10 * time.Second) {
-			log.Fatalf("Could not subscribe: %v", token.Error())
+			log.Fatalf("MQTT Could not subscribe: %v", token.Error())
 		}
 	}
 }
@@ -259,17 +286,21 @@ func createActivateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 		}
 
 		if err := r.ParseForm(); err != nil {
-			log.Printf("Could not parse form parameters: %v", err)
+			log.Printf("HTTP Could not parse form parameters: %v", err)
 			http.Error(w, "Could not parse form parameters", http.StatusUnprocessableEntity)
 			return
 		}
 
 		targetID := r.FormValue("id")
 
+		if opts.Verbose {
+			log.Printf("HTTP Switching to tab %v", targetID)
+		}
+
 		err := kiosk.SwitchToTab(targetID)
 
 		if err != nil {
-			log.Printf("Could not switch to tab: %v", err)
+			log.Printf("HTTP Could not switch to tab: %v", err)
 			http.Error(w, "Could not switch to tab", http.StatusUnprocessableEntity)
 			return
 		}

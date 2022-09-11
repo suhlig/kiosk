@@ -18,7 +18,6 @@ type Kiosk struct {
 	images           map[target.ID]*Image
 	quitTabSwitching chan struct{}
 	interval         time.Duration
-	verbose          bool
 	fullScreen       bool
 	cancelAllocator  context.CancelFunc
 	cancelContext    context.CancelFunc
@@ -35,11 +34,6 @@ func (k *Kiosk) WithInterval(interval time.Duration) *Kiosk {
 	return k
 }
 
-func (k *Kiosk) WithVerbose(verbose bool) *Kiosk {
-	k.verbose = verbose
-	return k
-}
-
 func (k *Kiosk) WithFullScreen(fullScreen bool) *Kiosk {
 	k.fullScreen = fullScreen
 	return k
@@ -53,40 +47,40 @@ func (k *Kiosk) NewTab(tab *script.Tab) error {
 	return k.createAdditionalTab(tab)
 }
 
-func (k *Kiosk) NextTab() {
+func (k *Kiosk) NextTab() error {
 	k.PauseTabSwitching()
 
 	nextContext, err := k.findNextTab(true)
 
 	if err != nil {
-		log.Println(err)
-		return
+		return err
 	}
 
 	err = k.switchToTab(nextContext)
 
 	if err != nil {
-		log.Println(err)
-		return
+		return err
 	}
+
+	return nil
 }
 
-func (k *Kiosk) PreviousTab() {
+func (k *Kiosk) PreviousTab() error {
 	k.PauseTabSwitching()
 
 	previousContext, err := k.findNextTab(false)
 
 	if err != nil {
-		log.Println(err)
-		return
+		return err
 	}
 
 	err = k.switchToTab(previousContext)
 
 	if err != nil {
-		log.Println(err)
-		return
+		return err
 	}
+
+	return nil
 }
 
 func (k *Kiosk) SwitchToTab(targetID string) error {
@@ -96,10 +90,6 @@ func (k *Kiosk) SwitchToTab(targetID string) error {
 
 	if err != nil {
 		return err
-	}
-
-	if k.verbose {
-		log.Printf("Switching to tab %v\n", targetID)
 	}
 
 	return k.switchToTab(nextContext)
@@ -169,14 +159,6 @@ func (k *Kiosk) createAdditionalTab(tab *script.Tab) error {
 }
 
 func (k *Kiosk) createTab(ctx context.Context, tab *script.Tab) error {
-	if k.verbose {
-		log.Printf("Performing actions for tab %s:\n", tab)
-
-		for _, a := range tab.Steps {
-			log.Printf("  * %s\n", a)
-		}
-	}
-
 	err := chromedp.Run(ctx, tab.Actions()...)
 
 	if err != nil {
@@ -205,10 +187,6 @@ func (k *Kiosk) setCurrentTab(id target.ID) {
 func (k *Kiosk) switchTabsForever() error {
 	ticker := time.NewTicker(k.interval)
 
-	if k.verbose {
-		log.Println("Starting tab switching")
-	}
-
 	for {
 		select {
 		case <-ticker.C:
@@ -225,10 +203,6 @@ func (k *Kiosk) switchTabsForever() error {
 			}
 		case <-k.quitTabSwitching:
 			ticker.Stop()
-
-			if k.verbose {
-				log.Println("Stopping tab switching")
-			}
 
 			return nil
 		}

@@ -28,13 +28,13 @@ A gallery of tabs is presented via HTTP.
 # TODO
 
 - try using [staticClick](https://flickity.metafizzy.co/events.html#staticclick) to POST via [Fetch API](https://attacomsian.com/blog/xhr-post-request) instead of form POST (saves a page reload and should prevent flicker)
+  - might also make the current page the one shown when loading the controller? If not, implement separately.
 - add pause/resume controls to HTTP control server
-- make the current page the one shown when loading the controller
-- write in log where a command came from (http, MQTT, etc.)
 - describe MQTT commands with examples (based on current config) on about page
 - deploy using pipeline
 - test pages for presence of some element, otherwise close tab and restart (e.g. when authenticated session expires)
-- refresh pages that are not self-refreshing (browser-reload or recreate the tab)
+- refresh pages that are not self-refreshing (e.g. [reload](https://github.com/chromedp/chromedp/blob/a3b306adf4a8348197a7927cacf3e77077121dd5/nav.go#L89))
+  - also useful as MQTT & HTTP command
 - `unclutter -idle 0.5 -root &` if needed
 - [splash screen at boot](https://github.com/guysoft/FullPageOS/blob/master/src/modules/fullpageos/filesystem/root_init/etc/systemd/system/splashscreen.service)
 
