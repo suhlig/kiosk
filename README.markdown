@@ -27,6 +27,7 @@ A gallery of tabs is presented via HTTP.
 
 # TODO
 
+- try using [staticClick](https://flickity.metafizzy.co/events.html#staticclick) to POST via [Fetch API](https://attacomsian.com/blog/xhr-post-request) instead of form POST (saves a page reload and should prevent flicker)
 - make the current page the one shown when loading the controller
 - test pages for presence of some element, otherwise close tab and restart (e.g. when authenticated session expires)
 - refresh pages that are not self-refreshing (browser-reload or recreate the tab)
