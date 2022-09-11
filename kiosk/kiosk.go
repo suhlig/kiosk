@@ -313,6 +313,34 @@ func (kiosk *Kiosk) findNextTab(forward bool) (context.Context, error) {
 	return nil, fmt.Errorf("could not find the current tab %v", kiosk.currentTab)
 }
 
+func (k *Kiosk) SwitchToTab(targetID string) error {
+	k.PauseTabSwitching()
+
+	nextContext, err := k.findTab(target.ID(targetID))
+
+	if err != nil {
+		return err
+	}
+
+	if k.verbose {
+		log.Printf("Switching to tab %v\n", targetID)
+	}
+
+	return k.switchToTab(nextContext)
+}
+
+func (k *Kiosk) findTab(targetID target.ID) (context.Context, error) {
+	for _, ctx := range k.allContexts {
+		tabID := chromedp.FromContext(ctx).Target.TargetID
+
+		if tabID == targetID {
+			return ctx, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not find the a tab with ID %v", targetID)
+}
+
 func isClosed(ch <-chan struct{}) bool {
 	select {
 	case <-ch:

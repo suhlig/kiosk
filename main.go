@@ -267,13 +267,18 @@ func createActivateHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
 		if err := r.ParseForm(); err != nil {
 			log.Printf("Could not parse form parameters: %v", err)
 			http.Error(w, "Could not parse form parameters", http.StatusUnprocessableEntity)
-
 			return
 		}
 
 		targetID := r.FormValue("id")
 
-		log.Printf("TODO activate tab with ID %v", targetID)
+		err := kiosk.SwitchToTab(targetID)
+
+		if err != nil {
+			log.Printf("Could not switch to tab: %v", err)
+			http.Error(w, "Could not switch to tab", http.StatusUnprocessableEntity)
+			return
+		}
 
 		http.Redirect(w, r, fmt.Sprintf("/#%v", targetID), http.StatusTemporaryRedirect)
 	}
