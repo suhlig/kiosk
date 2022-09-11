@@ -78,16 +78,8 @@ func main() {
 		WithVerbose(opts.Verbose).
 		WithFullScreen(opts.Kiosk)
 
-	// first tab is special
-	err = kiosk.FirstTab(tabs[0])
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// all other tabs are equal
-	for _, tab := range tabs[1:] {
-		err = kiosk.AdditionalTab(tab)
+	for _, tab := range tabs {
+		err = kiosk.NewTab(tab)
 
 		if err != nil {
 			log.Fatal(err)
@@ -95,6 +87,7 @@ func main() {
 	}
 
 	kiosk.StartTabSwitching()
+
 	err = configureMqtt(kiosk)
 
 	if err != nil {

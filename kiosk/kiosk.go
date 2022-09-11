@@ -30,24 +30,6 @@ func NewKiosk() *Kiosk {
 	}
 }
 
-func (k *Kiosk) GetImage(id string) (*Image, bool) {
-	img, found := k.images[target.ID(id)]
-
-	if found {
-		return img, true
-	}
-
-	return nil, false
-}
-
-func (k *Kiosk) ImageIDs() (images []string) {
-	for _, i := range k.images {
-		images = append(images, i.GetID())
-	}
-
-	return
-}
-
 func (k *Kiosk) WithInterval(interval time.Duration) *Kiosk {
 	k.interval = interval
 	return k
@@ -63,41 +45,12 @@ func (k *Kiosk) WithFullScreen(fullScreen bool) *Kiosk {
 	return k
 }
 
-func (k *Kiosk) FirstTab(tab *script.Tab) error {
-	if len(k.allContexts) != 0 {
-		return fmt.Errorf("cannot create another first tab")
-	}
-
-	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("start-fullscreen", k.fullScreen),
-		chromedp.Flag("kiosk", k.fullScreen),
-		chromedp.Flag("headless", false),
-		chromedp.Flag("enable-automation", false),
-	)
-
-	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
-
-	k.cancelAllocator = cancelAllocator
-
-	ctx, cancelContext := chromedp.NewContext(
-		allocCtx,
-		chromedp.WithLogf(func(msg string, values ...interface{}) {
-			log.Printf(msg, values...)
-		}),
-	)
-
-	k.cancelContext = cancelContext
-
-	return k.createTab(ctx, tab)
-}
-
-func (k *Kiosk) AdditionalTab(tab *script.Tab) error {
+func (k *Kiosk) NewTab(tab *script.Tab) error {
 	if len(k.allContexts) == 0 {
-		return fmt.Errorf("cannot create another additional tab without a first one")
+		return k.createFirstTab(tab)
 	}
 
-	ctx, _ := chromedp.NewContext(k.rootContext())
-	return k.createTab(ctx, tab)
+	return k.createAdditionalTab(tab)
 }
 
 func (k *Kiosk) NextTab() {
@@ -136,6 +89,22 @@ func (k *Kiosk) PreviousTab() {
 	}
 }
 
+func (k *Kiosk) SwitchToTab(targetID string) error {
+	k.PauseTabSwitching()
+
+	nextContext, err := k.findTab(target.ID(targetID))
+
+	if err != nil {
+		return err
+	}
+
+	if k.verbose {
+		log.Printf("Switching to tab %v\n", targetID)
+	}
+
+	return k.switchToTab(nextContext)
+}
+
 func (k *Kiosk) StartTabSwitching() {
 	k.quitTabSwitching = make(chan struct{})
 	go k.switchTabsForever()
@@ -152,20 +121,51 @@ func (k *Kiosk) Close() {
 	k.cancelContext()
 }
 
-func (k *Kiosk) SwitchToTab(targetID string) error {
-	k.PauseTabSwitching()
+func (k *Kiosk) GetImage(id string) (*Image, bool) {
+	img, found := k.images[target.ID(id)]
 
-	nextContext, err := k.findTab(target.ID(targetID))
-
-	if err != nil {
-		return err
+	if found {
+		return img, true
 	}
 
-	if k.verbose {
-		log.Printf("Switching to tab %v\n", targetID)
+	return nil, false
+}
+
+func (k *Kiosk) ImageIDs() (images []string) {
+	for _, i := range k.images {
+		images = append(images, i.GetID())
 	}
 
-	return k.switchToTab(nextContext)
+	return
+}
+
+func (k *Kiosk) createFirstTab(tab *script.Tab) error {
+	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("start-fullscreen", k.fullScreen),
+		chromedp.Flag("kiosk", k.fullScreen),
+		chromedp.Flag("headless", false),
+		chromedp.Flag("enable-automation", false),
+	)
+
+	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
+
+	k.cancelAllocator = cancelAllocator
+
+	ctx, cancelContext := chromedp.NewContext(
+		allocCtx,
+		chromedp.WithLogf(func(msg string, values ...interface{}) {
+			log.Printf(msg, values...)
+		}),
+	)
+
+	k.cancelContext = cancelContext
+
+	return k.createTab(ctx, tab)
+}
+
+func (k *Kiosk) createAdditionalTab(tab *script.Tab) error {
+	ctx, _ := chromedp.NewContext(k.rootContext())
+	return k.createTab(ctx, tab)
 }
 
 func (k *Kiosk) createTab(ctx context.Context, tab *script.Tab) error {
@@ -290,10 +290,10 @@ func (k *Kiosk) findNextTab(forward bool) (context.Context, error) {
 	}
 
 	for i, ctx := range k.allContexts {
-		targetID := chromedp.FromContext(ctx).Target.TargetID
+		tabID := chromedp.FromContext(ctx).Target.TargetID
 
 		// is this the current tab?
-		if k.currentTab == "" || targetID == k.currentTab {
+		if k.currentTab == "" || tabID == k.currentTab {
 			// grab the context of the next tab or cycle to the beginning
 			if i == len(k.allContexts)-1 {
 				return k.rootContext(), nil
