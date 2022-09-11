@@ -4,21 +4,21 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kiosk</title>
+    <title>Kiosk Controller</title>
     <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
     <link rel="stylesheet" href="https://unpkg.com/flickity@2/dist/flickity.min.css">
     <script src="https://unpkg.com/flickity@2/dist/flickity.pkgd.min.js"></script>
     <script src="https://unpkg.com/flickity-hash@2/hash.js"></script>
   </head>
   <body>
-{{/*
+
     <header>
       <nav>
         <a href="/" class="current">Home</a>
         <a href="/about">About</a>
       </nav>
     </header>
-*/}}
+
     <main>
       <div class="carousel" data-flickity='{ "wrapAround": true, "imagesLoaded": true, "percentPosition": false, "hash": true }'>
       {{ range . }}
@@ -31,10 +31,16 @@
       {{ end }}
       </div>
     </main>
-{{/*
+
     <footer>
-      <p>Thanks to <a href="https://simplecss.org/">simple.css</a>.</p>
+      <p>
+        kiosk v. TODO
+        ·
+        <a href="https://github.com/suhlig/kiosk">Source code</a>
+        ·
+        Made with <a href="https://simplecss.org/">simple.css</a>
+      </p>
     </footer>
-*/}}
+
   </body>
 </html>
