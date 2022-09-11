@@ -54,6 +54,7 @@
             - --kiosk
             - --verbose
             - --interval 10s
+            - --http-address :8011
             - /etc/kiosk.yml
           environment:
             - DISPLAY=:0.0
