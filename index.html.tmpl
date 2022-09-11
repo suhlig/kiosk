@@ -22,7 +22,7 @@
     <main>
       <div class="carousel" data-flickity='{ "wrapAround": true, "imagesLoaded": true, "percentPosition": false, "hash": true }'>
       {{ range . }}
-        <form method="post" action="http://localhost:8080/activate/">
+        <form method="post" action="/activate/">
           <input type="hidden" name="id" value="{{ . }}">
           <a onclick="this.parentNode.submit();">
             <img id="{{ . }}" src="/image/{{ . }}" />

@@ -22,13 +22,14 @@ import (
 )
 
 var opts struct {
-	Version      bool          `short:"V" long:"version" description:"Print version information and exit"`
-	Verbose      bool          `short:"v" long:"verbose" description:"Print verbose information"`
-	Kiosk        bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
-	Interval     time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
-	MqttClientID string        `short:"c" long:"client-id" description:"client id to use for the MQTT connection"`
-	MqttURL      string        `short:"m" long:"mqtt-url"  description:"URL of the MQTT broker incl. username and password" env:"MQTT_URL"`
-	Args         struct {
+	Version         bool          `short:"V" long:"version" description:"Print version information and exit"`
+	Verbose         bool          `short:"v" long:"verbose" description:"Print verbose information"`
+	Kiosk           bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
+	Interval        time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
+	MqttClientID    string        `short:"c" long:"client-id" description:"client id to use for the MQTT connection"`
+	MqttURL         string        `short:"m" long:"mqtt-url"  description:"URL of the MQTT broker incl. username and password" env:"MQTT_URL"`
+	HttpBindAddress string        `short:"a" long:"http-address"  description:"Address to bind the HTTP control server to" default:"localhost:8011"`
+	Args            struct {
 		Scriptfile string
 	} `positional-args:"yes"`
 }
@@ -108,8 +109,8 @@ func main() {
 	http.Handle("/activate/", createActivateHandler(kiosk))
 
 	go func() {
-		log.Println("Server started at port 8080")
-		log.Fatal(http.ListenAndServe(":8080", nil))
+		log.Printf("HTTP control server starting at http://%v\n", opts.HttpBindAddress)
+		log.Fatal(http.ListenAndServe(opts.HttpBindAddress, nil))
 	}()
 
 	<-quitProgram
