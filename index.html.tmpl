@@ -6,17 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kiosk</title>
     <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
-    <style>
-      .gallery {
-        display: grid;
-        grid-gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      }
-
-      .gallery form a img {
-        width: 100%;
-      }
-    </style>
+    <link rel="stylesheet" href="https://unpkg.com/flickity@2/dist/flickity.min.css">
+    <script src="https://unpkg.com/flickity@2/dist/flickity.pkgd.min.js"></script>
+    <script src="https://unpkg.com/flickity-hash@2/hash.js"></script>
   </head>
   <body>
 {{/*
@@ -27,20 +19,18 @@
       </nav>
     </header>
 */}}
-
     <main>
-      <div class="gallery">
+      <div class="carousel" data-flickity='{ "wrapAround": true, "imagesLoaded": true, "percentPosition": false, "hash": true }'>
       {{ range . }}
-        <form method="post" action="/activate/">
-          <input type="hidden" name="id" value="{{ . }}" />
+        <form method="post" action="http://localhost:8080/activate/">
+          <input type="hidden" name="id" value="{{ . }}">
           <a onclick="this.parentNode.submit();">
-            <img src="/image/{{ . }}"/>
+            <img id="{{ . }}" src="/image/{{ . }}" />
           </a>
         </form>
       {{ end }}
       </div>
     </main>
-
 {{/*
     <footer>
       <p>Thanks to <a href="https://simplecss.org/">simple.css</a>.</p>

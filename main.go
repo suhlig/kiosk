@@ -271,8 +271,10 @@ func createActivateHandler(kiosk *kiosk.Kiosk) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("TODO activate tab with ID %v", r.FormValue("id"))
+		targetID := r.FormValue("id")
 
-		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		log.Printf("TODO activate tab with ID %v", targetID)
+
+		http.Redirect(w, r, fmt.Sprintf("/#%v", targetID), http.StatusTemporaryRedirect)
 	}
 }
