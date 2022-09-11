@@ -182,6 +182,27 @@ func (k *Kiosk) PauseTabSwitching() {
 	}
 }
 
+func (k *Kiosk) Close() {
+	k.cancelAllocator()
+	k.cancelContext()
+}
+
+func (k *Kiosk) SwitchToTab(targetID string) error {
+	k.PauseTabSwitching()
+
+	nextContext, err := k.findTab(target.ID(targetID))
+
+	if err != nil {
+		return err
+	}
+
+	if k.verbose {
+		log.Printf("Switching to tab %v\n", targetID)
+	}
+
+	return k.switchToTab(nextContext)
+}
+
 func (k *Kiosk) rootContext() context.Context {
 	return k.allContexts[0]
 }
@@ -201,11 +222,6 @@ func (k *Kiosk) newTab(actions ...chromedp.Action) (context.Context, error) {
 	}
 
 	return ctx, nil
-}
-
-func (k *Kiosk) Close() {
-	k.cancelAllocator()
-	k.cancelContext()
 }
 
 func (k *Kiosk) switchTabsForever() error {
@@ -242,11 +258,11 @@ func (k *Kiosk) switchTabsForever() error {
 	}
 }
 
-func (kiosk *Kiosk) switchToTab(targetContext context.Context) error {
+func (k *Kiosk) switchToTab(targetContext context.Context) error {
 	targetID := chromedp.FromContext(targetContext).Target.TargetID
 
 	// TODO do we really need the ActionFunc?
-	err := chromedp.Run(kiosk.rootContext(), chromedp.ActionFunc(func(ctx context.Context) error {
+	err := chromedp.Run(k.rootContext(), chromedp.ActionFunc(func(ctx context.Context) error {
 		err := target.ActivateTarget(targetID).Do(ctx)
 
 		if err != nil {
@@ -260,18 +276,18 @@ func (kiosk *Kiosk) switchToTab(targetContext context.Context) error {
 		return err
 	}
 
-	err = kiosk.saveScreenshot(targetContext, targetID)
+	err = k.saveScreenshot(targetContext, targetID)
 
 	if err != nil {
 		return err
 	}
 
-	kiosk.setCurrentTab(targetID)
+	k.setCurrentTab(targetID)
 
 	return nil
 }
 
-func (kiosk *Kiosk) saveScreenshot(ctx context.Context, targetID target.ID) error {
+func (k *Kiosk) saveScreenshot(ctx context.Context, targetID target.ID) error {
 	var buf []byte
 
 	// Chrome waits for the page described by ctx to be _active_
@@ -279,11 +295,11 @@ func (kiosk *Kiosk) saveScreenshot(ctx context.Context, targetID target.ID) erro
 		return err
 	}
 
-	img, found := kiosk.images[targetID]
+	img, found := k.images[targetID]
 
 	if !found {
 		img = &Image{}
-		kiosk.images[targetID] = img
+		k.images[targetID] = img
 	}
 
 	img.Store(targetID.String(), buf)
@@ -291,42 +307,26 @@ func (kiosk *Kiosk) saveScreenshot(ctx context.Context, targetID target.ID) erro
 	return nil
 }
 
-func (kiosk *Kiosk) findNextTab(forward bool) (context.Context, error) {
+func (k *Kiosk) findNextTab(forward bool) (context.Context, error) {
 	if !forward {
-		reverse(kiosk.allContexts)
+		reverse(k.allContexts)
 	}
 
-	for i, ctx := range kiosk.allContexts {
+	for i, ctx := range k.allContexts {
 		targetID := chromedp.FromContext(ctx).Target.TargetID
 
 		// is this the current tab?
-		if kiosk.currentTab == "" || targetID == kiosk.currentTab {
+		if k.currentTab == "" || targetID == k.currentTab {
 			// grab the context of the next tab or cycle to the beginning
-			if i == len(kiosk.allContexts)-1 {
-				return kiosk.rootContext(), nil
+			if i == len(k.allContexts)-1 {
+				return k.rootContext(), nil
 			} else {
-				return kiosk.allContexts[i+1], nil
+				return k.allContexts[i+1], nil
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("could not find the current tab %v", kiosk.currentTab)
-}
-
-func (k *Kiosk) SwitchToTab(targetID string) error {
-	k.PauseTabSwitching()
-
-	nextContext, err := k.findTab(target.ID(targetID))
-
-	if err != nil {
-		return err
-	}
-
-	if k.verbose {
-		log.Printf("Switching to tab %v\n", targetID)
-	}
-
-	return k.switchToTab(nextContext)
+	return nil, fmt.Errorf("could not find the current tab %v", k.currentTab)
 }
 
 func (k *Kiosk) findTab(targetID target.ID) (context.Context, error) {
