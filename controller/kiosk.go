@@ -21,11 +21,13 @@ type Kiosk struct {
 	fullScreen       bool
 	cancelAllocator  context.CancelFunc
 	cancelContext    context.CancelFunc
+	extraFlags       map[string]interface{}
 }
 
 func NewKiosk() *Kiosk {
 	return &Kiosk{
-		images: make(map[target.ID]*Image),
+		images:     make(map[target.ID]*Image),
+		extraFlags: make(map[string]interface{}),
 	}
 }
 
@@ -36,6 +38,11 @@ func (k *Kiosk) WithInterval(interval time.Duration) *Kiosk {
 
 func (k *Kiosk) WithFullScreen(fullScreen bool) *Kiosk {
 	k.fullScreen = fullScreen
+	return k
+}
+
+func (k *Kiosk) WithFlag(key string, value interface{}) *Kiosk {
+	k.extraFlags[key] = value
 	return k
 }
 
@@ -136,6 +143,10 @@ func (k *Kiosk) createFirstTab(tab *script.Tab) error {
 		chromedp.Flag("headless", false),
 		chromedp.Flag("enable-automation", false),
 	)
+
+	for key, value := range k.extraFlags {
+		allocatorOptions = append(allocatorOptions, chromedp.Flag(key, value))
+	}
 
 	allocCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), allocatorOptions...)
 

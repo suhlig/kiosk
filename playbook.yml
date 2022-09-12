@@ -55,6 +55,7 @@
             - --verbose
             - --interval 10s
             - --http-address :8011
+            - --chrome-flag window-position=800,0
             - /etc/kiosk.yml
           environment:
             - DISPLAY=:0.0

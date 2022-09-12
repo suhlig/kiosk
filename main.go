@@ -27,8 +27,9 @@ var opts struct {
 	Kiosk           bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
 	Interval        time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
 	MqttClientID    string        `short:"c" long:"client-id" description:"client id to use for the MQTT connection"`
-	MqttURL         string        `short:"m" long:"mqtt-url"  description:"URL of the MQTT broker incl. username and password" env:"MQTT_URL"`
-	HttpBindAddress string        `short:"a" long:"http-address"  description:"Address to bind the HTTP control server to" default:"localhost:8011"`
+	MqttURL         string        `short:"m" long:"mqtt-url" description:"URL of the MQTT broker incl. username and password" env:"MQTT_URL"`
+	HttpBindAddress string        `short:"a" long:"http-address" description:"Address to bind the HTTP control server to" default:"localhost:8011"`
+	ChromeFlags     []string      `long:"chrome-flag" description:"additional flags to pass to chromium"`
 	Args            struct {
 		Scriptfile string
 	} `positional-args:"yes"`
@@ -77,6 +78,16 @@ func main() {
 	kiosk := controller.NewKiosk().
 		WithInterval(opts.Interval).
 		WithFullScreen(opts.Kiosk)
+
+	for _, cf := range opts.ChromeFlags {
+		key, value, found := strings.Cut(cf, "=")
+
+		if !found {
+			log.Fatalf("Could not separate chrome flag %v; expecting k=v\n", cf)
+		}
+
+		kiosk = kiosk.WithFlag(key, value)
+	}
 
 	for _, tab := range tabs {
 		if opts.Verbose {
