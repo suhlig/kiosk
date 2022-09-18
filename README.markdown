@@ -56,8 +56,19 @@ Example:
 
 # TODO
 
+- stream image updates (saves us from reloading the page)
+- add pause/resume/backlight controls to HTTP control server as POST
+  - via [Fetch API](https://attacomsian.com/blog/xhr-post-request) (no page reloads)
+  - is this the right time to use a router? Perhaps the built-in mux?
+- keep updating screenshots while switching is paused (requires streaming or updates)
 - try using [staticClick](https://flickity.metafizzy.co/events.html#staticclick) to POST via [Fetch API](https://attacomsian.com/blog/xhr-post-request) instead of form POST (saves a page reload and should prevent flicker)
   - might also make the current page the one shown when loading the controller? If not, implement separately.
+- add another service to run the kiosk controller on the touch screen:
+
+  ```command
+  $ chromium-browser --kiosk http://localhost:8011
+  ```
+- re-configure tab switching time in the controller
 - deploy using pipeline
 - test pages for presence of some element, otherwise close tab and restart (e.g. when authenticated session expires)
 - refresh pages that are not self-refreshing (e.g. [reload](https://github.com/chromedp/chromedp/blob/a3b306adf4a8348197a7927cacf3e77077121dd5/nav.go#L89))
