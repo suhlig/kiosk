@@ -19,7 +19,7 @@ import (
 	"uhlig.it/kiosk/script"
 )
 
-var opts struct {
+type options struct {
 	Version         bool          `short:"V" long:"version" description:"Print version information and exit"`
 	Verbose         bool          `short:"v" long:"verbose" description:"Print verbose information"`
 	Kiosk           bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
@@ -32,10 +32,16 @@ var opts struct {
 	} `positional-args:"yes"`
 }
 
+func (o options) String() string {
+	return fmt.Sprintf(`kiosk: %v, headless: %v, interval: %v, chromeflags: %v`, o.Kiosk, o.Headless, o.Interval, o.ChromeFlags)
+}
+
 // ldflags will be set by goreleaser
 var version = "vDEV"
 var commit = "NONE"
 var date = "UNKNOWN"
+
+var opts options
 
 //go:embed *.html.tmpl
 var htmlAssets embed.FS
@@ -54,11 +60,21 @@ func main() {
 		os.Exit(0)
 	}
 
+	if opts.Verbose {
+		log.Printf("MAIN Starting with options: %v\n", opts)
+	}
+
 	var scriptBytes []byte
 
 	if opts.Args.Scriptfile == "" {
+		if opts.Verbose {
+			log.Println("MAIN Reading script from STDIN")
+		}
 		scriptBytes, err = io.ReadAll(os.Stdin)
 	} else {
+		if opts.Verbose {
+			log.Printf("MAIN Reading script from %v\n", opts.Args.Scriptfile)
+		}
 		scriptBytes, err = os.ReadFile(opts.Args.Scriptfile)
 	}
 
