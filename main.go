@@ -180,7 +180,7 @@ func createRootHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 		tmpl.Execute(w, map[string]any{
 			"programVersion": getProgramVersion(),
 			"images":         kiosk.ImageIDs(),
-			"isSwitching":    kiosk.IsTabSwitching(),
+			"isTabSwitching": kiosk.IsTabSwitching(),
 		})
 	}
 }
@@ -240,16 +240,11 @@ func createPauseHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 			return
 		}
 
-		if !kiosk.IsTabSwitching() {
-			log.Println("HTTP Tab switching already paused")
-			w.WriteHeader(http.StatusMisdirectedRequest)
-			fmt.Fprintln(w, "Tab switching is already off")
-		} else {
-			log.Println("HTTP Pausing tab switching")
-			kiosk.PauseTabSwitching()
-			w.WriteHeader(http.StatusCreated)
-			fmt.Fprintln(w, "Tab switching is off")
-		}
+		log.Println("HTTP Pausing tab switching")
+		kiosk.PauseTabSwitching()
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"isTabSwitching": %v}`, kiosk.IsTabSwitching())
 	}
 }
 
@@ -260,15 +255,10 @@ func createResumeHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 			return
 		}
 
-		if kiosk.IsTabSwitching() {
-			log.Println("HTTP Already tab switching")
-			w.WriteHeader(http.StatusMisdirectedRequest)
-			fmt.Fprintln(w, "Tab switching is already on")
-		} else {
-			log.Println("HTTP Resuming tab switching")
-			kiosk.StartTabSwitching()
-			w.WriteHeader(http.StatusCreated)
-			fmt.Fprintln(w, "Tab switching is on")
-		}
+		log.Println("HTTP Resuming tab switching")
+		kiosk.StartTabSwitching()
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"isTabSwitching": %v}`, kiosk.IsTabSwitching())
 	}
 }

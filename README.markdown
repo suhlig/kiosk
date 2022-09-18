@@ -57,10 +57,8 @@ Example:
 # TODO
 
 - stream image updates (saves us from reloading the page)
-- add pause/resume/backlight controls to HTTP control server as POST
-  - via [Fetch API](https://attacomsian.com/blog/xhr-post-request) (no page reloads)
-  - is this the right time to use a router? Perhaps the built-in mux?
-- keep updating screenshots while switching is paused (requires streaming or updates)
+  - or find another way to keep updating screenshots while switching is paused
+- add backlight controls to HTTP control server as POST
 - try using [staticClick](https://flickity.metafizzy.co/events.html#staticclick) to POST via [Fetch API](https://attacomsian.com/blog/xhr-post-request) instead of form POST (saves a page reload and should prevent flicker)
   - might also make the current page the one shown when loading the controller? If not, implement separately.
 - add another service to run the kiosk controller on the touch screen:
