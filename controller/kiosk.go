@@ -19,6 +19,7 @@ type Kiosk struct {
 	quitTabSwitching chan struct{}
 	interval         time.Duration
 	fullScreen       bool
+	headless         bool
 	cancelAllocator  context.CancelFunc
 	cancelContext    context.CancelFunc
 	extraFlags       map[string]interface{}
@@ -38,6 +39,11 @@ func (k *Kiosk) WithInterval(interval time.Duration) *Kiosk {
 
 func (k *Kiosk) WithFullScreen(fullScreen bool) *Kiosk {
 	k.fullScreen = fullScreen
+	return k
+}
+
+func (k *Kiosk) WithHeadless(headless bool) *Kiosk {
+	k.headless = headless
 	return k
 }
 
@@ -140,7 +146,7 @@ func (k *Kiosk) createFirstTab(tab *script.Tab) error {
 	allocatorOptions := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("start-fullscreen", k.fullScreen),
 		chromedp.Flag("kiosk", k.fullScreen),
-		chromedp.Flag("headless", false),
+		chromedp.Flag("headless", k.headless),
 		chromedp.Flag("enable-automation", false),
 	)
 

@@ -23,6 +23,7 @@ var opts struct {
 	Version         bool          `short:"V" long:"version" description:"Print version information and exit"`
 	Verbose         bool          `short:"v" long:"verbose" description:"Print verbose information"`
 	Kiosk           bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
+	Headless        bool          `short:"H" long:"headless" description:"Run headless"`
 	Interval        time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
 	HttpBindAddress string        `short:"a" long:"http-address" description:"Address to bind the HTTP control server to" default:"localhost:8011"`
 	ChromeFlags     []string      `long:"chrome-flag" description:"additional flags to pass to chromium"`
@@ -73,7 +74,8 @@ func main() {
 
 	kiosk := controller.NewKiosk().
 		WithInterval(opts.Interval).
-		WithFullScreen(opts.Kiosk)
+		WithFullScreen(opts.Kiosk).
+		WithHeadless(opts.Headless)
 
 	for _, cf := range opts.ChromeFlags {
 		key, value, found := strings.Cut(cf, "=")
