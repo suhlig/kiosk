@@ -215,7 +215,7 @@ func createActivateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 
 		if err != nil {
 			log.Printf("HTTP Could not switch to tab: %v", err)
-			http.Error(w, "Could not switch to tab", http.StatusUnprocessableEntity)
+			http.Error(w, "Could not switch to tab", http.StatusInternalServerError)
 			return
 		}
 
