@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"text/template"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/jessevdk/go-flags"
 	"uhlig.it/kiosk/controller"
 	"uhlig.it/kiosk/script"
@@ -26,8 +24,6 @@ var opts struct {
 	Verbose         bool          `short:"v" long:"verbose" description:"Print verbose information"`
 	Kiosk           bool          `short:"k" long:"kiosk" description:"Run in kiosk mode"`
 	Interval        time.Duration `short:"i" long:"interval" description:"how long to wait before switching to the next tab. Anything Go's time#ParseDuration understands is accepted." default:"5s"`
-	MqttClientID    string        `short:"c" long:"client-id" description:"client id to use for the MQTT connection"`
-	MqttURL         string        `short:"m" long:"mqtt-url" description:"URL of the MQTT broker incl. username and password" env:"MQTT_URL"`
 	HttpBindAddress string        `short:"a" long:"http-address" description:"Address to bind the HTTP control server to" default:"localhost:8011"`
 	ChromeFlags     []string      `long:"chrome-flag" description:"additional flags to pass to chromium"`
 	Args            struct {
@@ -111,12 +107,6 @@ func main() {
 
 	kiosk.StartTabSwitching()
 
-	err = configureMqtt(kiosk)
-
-	if err != nil {
-		log.Fatalf("Could not connect to MQTT: %s", err)
-	}
-
 	quitProgram := make(chan struct{})
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -147,111 +137,6 @@ func getProgramName() string {
 	}
 
 	return filepath.Base(path)
-}
-
-func configureMqtt(kiosk *controller.Kiosk) error {
-	mqttURL, err := url.Parse(opts.MqttURL)
-
-	if err != nil {
-		return err
-	}
-
-	mqttClientID := opts.MqttClientID
-
-	if mqttClientID == "" {
-		mqttClientID = getProgramName()
-	}
-
-	mqttOpts := mqtt.NewClientOptions().
-		AddBroker(mqttURL.String()).
-		SetClientID(mqttClientID).
-		SetCleanSession(false).
-		SetUsername(mqttURL.User.Username()).
-		SetAutoReconnect(true)
-
-	mqttOpts.OnConnect = createConnectHandler(kiosk, mqttURL)
-
-	mqttOpts.OnReconnecting = func(client mqtt.Client, options *mqtt.ClientOptions) {
-		if opts.Verbose {
-			log.Printf("MQTT Reconnecting to %s\n", mqttURL.String())
-		}
-	}
-
-	password, isSet := mqttURL.User.Password()
-
-	if isSet {
-		mqttOpts.SetPassword(password)
-	}
-
-	if opts.Verbose {
-		mqtt.WARN = log.New(os.Stderr, "MQTT WARN ", 0)
-	}
-
-	mqtt.CRITICAL = log.New(os.Stderr, "MQTT CRITICAL ", 0)
-	mqtt.ERROR = log.New(os.Stderr, "MQTT ERROR ", 0)
-
-	mqttClient := mqtt.NewClient(mqttOpts)
-
-	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
-		return token.Error()
-	}
-
-	return nil
-}
-
-func createConnectHandler(kiosk *controller.Kiosk, mqttURL *url.URL) func(mqtt.Client) {
-	topic := strings.TrimPrefix(mqttURL.Path, "/")
-
-	return func(mqttClient mqtt.Client) {
-		if opts.Verbose {
-			log.Printf("MQTT Connected to  %v\n", mqttURL.Host)
-		}
-
-		if opts.Verbose {
-			log.Printf("MQTT Subscribing to %v\n", topic)
-		}
-
-		token := mqttClient.Subscribe(topic, 0, func(c mqtt.Client, m mqtt.Message) {
-			command := string(m.Payload())
-
-			if opts.Verbose {
-				log.Printf("MQTT Received command '%v'\n", command)
-			}
-
-			switch command {
-			case "pause":
-				if opts.Verbose {
-					log.Println("MQTT Stopping tab switching")
-				}
-
-				kiosk.PauseTabSwitching()
-			case "resume":
-				if opts.Verbose {
-					log.Println("MQTT Resuming tab switching")
-				}
-
-				kiosk.StartTabSwitching()
-			case "next":
-				if opts.Verbose {
-					log.Println("MQTT Switch to next tab")
-				}
-
-				kiosk.NextTab()
-			case "previous":
-				if opts.Verbose {
-					log.Println("MQTT Switch to previous tab")
-				}
-
-				kiosk.PreviousTab()
-			default:
-				log.Printf("MQTT Could not interpret command '%v'\n", command)
-			}
-		})
-
-		if !token.WaitTimeout(10 * time.Second) {
-			log.Fatalf("MQTT Could not subscribe: %v", token.Error())
-		}
-	}
 }
 
 func createRootHandler(kiosk *controller.Kiosk) http.HandlerFunc {
