@@ -119,6 +119,10 @@ func (k *Kiosk) PauseTabSwitching() {
 	}
 }
 
+func (k *Kiosk) IsTabSwitching() bool {
+	return !isClosed(k.quitTabSwitching)
+}
+
 func (k *Kiosk) Close() {
 	k.cancelAllocator()
 	k.cancelContext()

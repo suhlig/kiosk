@@ -11,14 +11,17 @@
     <script src="https://unpkg.com/flickity-hash@2/hash.js"></script>
   </head>
   <body>
-
     <header>
       <nav>
         <a href="/" class="current">Home</a>
+      {{ if .isSwitching }}
+        <a href="/pause">Pause</a>
+      {{ else }}
+        <a href="/resume">Resume</a>
+      {{ end }}
         <a href="/about">About</a>
       </nav>
     </header>
-
     <main>
       <div class="carousel" data-flickity='{ "wrapAround": true, "imagesLoaded": true, "percentPosition": false, "hash": true }'>
       {{ range .images }}
@@ -31,7 +34,6 @@
       {{ end }}
       </div>
     </main>
-
     <footer>
       <p>
         kiosk v. TODO
