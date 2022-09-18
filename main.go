@@ -171,7 +171,9 @@ func createRootHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "text/html")
-		tmpl.Execute(w, kiosk.ImageIDs())
+		tmpl.Execute(w, map[string]any{
+			"images":         kiosk.ImageIDs(),
+		})
 	}
 }
 
