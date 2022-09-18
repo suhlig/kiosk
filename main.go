@@ -56,7 +56,7 @@ func main() {
 	}
 
 	if opts.Version {
-		log.Printf("%s %s (%s), built on %s\n", getProgramName(), version, commit, date)
+		log.Printf(getProgramVersion())
 		os.Exit(0)
 	}
 
@@ -157,6 +157,10 @@ func getProgramName() string {
 	return filepath.Base(path)
 }
 
+func getProgramVersion() string {
+	return fmt.Sprintf("%s %s (%s), built on %s\n", getProgramName(), version, commit, date)
+}
+
 func createRootHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	tmpl, err := template.ParseFS(htmlAssets, "index.html.tmpl")
 
@@ -172,6 +176,7 @@ func createRootHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "text/html")
 		tmpl.Execute(w, map[string]any{
+			"programVersion": getProgramVersion(),
 			"images":         kiosk.ImageIDs(),
 			"isSwitching":    kiosk.IsTabSwitching(),
 		})
