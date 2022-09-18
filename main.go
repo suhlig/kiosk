@@ -137,6 +137,8 @@ func main() {
 	http.Handle("/", createRootHandler(kiosk))
 	http.Handle("/image/", createImageHandler(kiosk))
 	http.Handle("/activate/", createActivateHandler(kiosk))
+	http.Handle("/pause", createPauseHandler(kiosk))
+	http.Handle("/resume", createResumeHandler(kiosk))
 
 	go func() {
 		log.Printf("HTTP control server starting at http://%v\n", opts.HttpBindAddress)
@@ -228,5 +230,45 @@ func createActivateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 		}
 
 		http.Redirect(w, r, fmt.Sprintf("/#%v", targetID), http.StatusTemporaryRedirect)
+	}
+}
+
+func createPauseHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Only POST allowed here", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if !kiosk.IsTabSwitching() {
+			log.Println("HTTP Tab switching already paused")
+			w.WriteHeader(http.StatusMisdirectedRequest)
+			fmt.Fprintln(w, "Tab switching is already off")
+		} else {
+			log.Println("HTTP Pausing tab switching")
+			kiosk.PauseTabSwitching()
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprintln(w, "Tab switching is off")
+		}
+	}
+}
+
+func createResumeHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Only POST allowed here", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if kiosk.IsTabSwitching() {
+			log.Println("HTTP Already tab switching")
+			w.WriteHeader(http.StatusMisdirectedRequest)
+			fmt.Fprintln(w, "Tab switching is already on")
+		} else {
+			log.Println("HTTP Resuming tab switching")
+			kiosk.StartTabSwitching()
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprintln(w, "Tab switching is on")
+		}
 	}
 }
