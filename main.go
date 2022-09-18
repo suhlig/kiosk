@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -139,6 +141,7 @@ func main() {
 	http.Handle("/activate/", createActivateHandler(kiosk))
 	http.Handle("/pause", createPauseHandler(kiosk))
 	http.Handle("/resume", createResumeHandler(kiosk))
+	http.Handle("/updates", createUpdateHandler(kiosk))
 
 	go func() {
 		log.Printf("HTTP control server starting at http://%v\n", opts.HttpBindAddress)
@@ -260,5 +263,30 @@ func createResumeHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"isTabSwitching": %v}`, kiosk.IsTabSwitching())
+	}
+}
+
+func createUpdateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		timeout := time.After(1 * time.Second)
+		select {
+		case event := <-kiosk.StatusUpdates:
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			enc.Encode(event)
+			fmt.Fprintf(w, "data: %v\n\n", buf.String())
+		case <-timeout:
+			fmt.Fprintln(w, "UPDATES nothing to send")
+		}
+
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
 	}
 }

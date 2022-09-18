@@ -12,7 +12,13 @@ import (
 	"uhlig.it/kiosk/script"
 )
 
+type StatusUpdate struct {
+	IsTabSwitching bool   `json:"isTabSwitching"`
+	CurrentTab     string `json:"currentTab"`
+}
+
 type Kiosk struct {
+	StatusUpdates    chan StatusUpdate
 	currentTab       target.ID
 	allContexts      []context.Context
 	images           map[target.ID]*Image
@@ -27,8 +33,9 @@ type Kiosk struct {
 
 func NewKiosk() *Kiosk {
 	return &Kiosk{
-		images:     make(map[target.ID]*Image),
-		extraFlags: make(map[string]interface{}),
+		images:        make(map[target.ID]*Image),
+		extraFlags:    make(map[string]interface{}),
+		StatusUpdates: make(chan StatusUpdate, 10),
 	}
 }
 
@@ -111,11 +118,19 @@ func (k *Kiosk) SwitchToTab(targetID string) error {
 func (k *Kiosk) StartTabSwitching() {
 	k.quitTabSwitching = make(chan struct{})
 	go k.switchTabsForever()
+
+	k.StatusUpdates <- StatusUpdate{
+		IsTabSwitching: k.IsTabSwitching(),
+	}
 }
 
 func (k *Kiosk) PauseTabSwitching() {
 	if !isClosed(k.quitTabSwitching) {
 		close(k.quitTabSwitching)
+	}
+
+	k.StatusUpdates <- StatusUpdate{
+		IsTabSwitching: k.IsTabSwitching(),
 	}
 }
 
@@ -203,6 +218,10 @@ func (k *Kiosk) rootContext() context.Context {
 
 func (k *Kiosk) setCurrentTab(id target.ID) {
 	(*k).currentTab = id
+	k.StatusUpdates <- StatusUpdate{
+		IsTabSwitching: k.IsTabSwitching(),
+		CurrentTab:     id.String(),
+	}
 }
 
 func (k *Kiosk) switchTabsForever() error {
