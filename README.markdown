@@ -2,7 +2,40 @@
 
 Turns a Raspberry Pi into a simple browser kiosk. A Go program controls a full-screen Chromium browser.
 
-Configuring the Pi is described in the `nerab.raspi` role. Make sure the Pi auto-boots into the graphical environment without asking for login credentials (see `raspi-config`).
+# Preparation
+
+1. Configure the OS image using the [Raspberry Pi Imager](https://www.raspberrypi.com/software/):
+
+   - Set hostname
+   - Enable SSH
+   - Configure a non-default user
+   - Configure WLAN
+   - Set the locale
+
+1. After first boot, use `raspi-config` to:
+
+   - Auto-boot into the graphical environment without asking for login credentials
+   - Disable screen blanking
+
+# Kiosk Controller
+
+The official touch screen makes a great secondary display for the `kiosk-controller`. Add or change the following lines in `/boot/config.txt`:
+
+* Rotate the touchscreen by 180°:
+
+  ```
+  lcd_rotate=2
+  ```
+
+* Switch to FKMS mode:
+
+  ```
+  dtoverlay=vc4-fkms-v3d
+  ```
+
+  Make sure it's `fkms`, and not `kms`.
+
+# Config File
 
 The URL of the browser is described in a YAML file that is passed as argument or via `STDIN` to the `kiosk` binary. If multiple entries are present, they will be opened as browser tabs and switched between every `--interval`; e.g. `10s`.
 
