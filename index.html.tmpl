@@ -38,15 +38,15 @@
     }
 
     window.addEventListener("load", function(event){
-      var flkty = new Flickity('.carousel', {
+      new Flickity('.carousel', {
         on: {
-          staticClick: function(event, pointer, cellElement, cellIndex) {
-            if (!cellElement) { return; }
+          staticClick: function(event, pointer, element, index) {
+            if (!element) { return; }
 
             fetch("/activate/", {
               "method": "POST",
               "headers": { "content-type": "application/x-www-form-urlencoded" },
-              "body": "id=" + cellElement.id,
+              "body": "id=" + element.id,
             })
             .catch(err => console.error(err));
           },
