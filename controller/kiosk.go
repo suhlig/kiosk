@@ -154,8 +154,9 @@ func (k *Kiosk) GetImage(id string) (*Image, bool) {
 }
 
 func (k *Kiosk) ImageIDs() (images []string) {
-	for _, i := range k.images {
-		images = append(images, i.GetID())
+	for _, ctx := range k.allContexts {
+		tabID := chromedp.FromContext(ctx).Target.TargetID
+		images = append(images, tabID.String())
 	}
 
 	return
