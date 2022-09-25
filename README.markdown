@@ -56,11 +56,10 @@ Example:
 
 # TODO
 
-- stream image updates (saves us from reloading the page)
-  - or find another way to keep updating screenshots while switching is paused
-- add backlight controls to HTTP control server as POST
-- try using [staticClick](https://flickity.metafizzy.co/events.html#staticclick) to POST via [Fetch API](https://attacomsian.com/blog/xhr-post-request) instead of form POST (saves a page reload and should prevent flicker)
-  - might also make the current page the one shown when loading the controller? If not, implement separately.
+- stream image updates (no need to reload images)
+- keep updating screenshots while switching is paused (may be impossible)
+- add backlight controls to controller (expose via HTTP POST)
+- make the current page the one shown when loading the controller
 - add another service to run the kiosk controller on the touch screen:
 
   ```command

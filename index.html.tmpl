@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
     <link rel="stylesheet" href="https://unpkg.com/flickity@2/dist/flickity.min.css">
     <script src="https://unpkg.com/flickity@2/dist/flickity.pkgd.min.js"></script>
-    <script src="https://unpkg.com/flickity-hash@2/hash.js"></script>
     <script>
     function updateTabSwitchingButton(caller, status) {
       if (status["isTabSwitching"]) {
@@ -37,6 +36,26 @@
     new EventSource("/updates").onmessage = (event) => {
       updateTabSwitchingButton(document.getElementById("tabSwitchingButton"), JSON.parse(event.data));
     }
+
+    window.addEventListener("load", function(event){
+      var flkty = new Flickity('.carousel', {
+        on: {
+          staticClick: function(event, pointer, cellElement, cellIndex) {
+            if (!cellElement) { return; }
+
+            fetch("/activate/", {
+              "method": "POST",
+              "headers": { "content-type": "application/x-www-form-urlencoded" },
+              "body": "id=" + cellElement.id,
+            })
+            .catch(err => console.error(err));
+          },
+        },
+        wrapAround: true,
+        imagesLoaded: true,
+        percentPosition: false,
+      });
+    });
     </script>
   </head>
   <body>
@@ -52,14 +71,9 @@
       </nav>
     </header>
     <main>
-      <div class="carousel" data-flickity='{ "wrapAround": true, "imagesLoaded": true, "percentPosition": false, "hash": true }'>
+      <div class="carousel">
       {{ range .images }}
-        <form method="post" action="/activate/">
-          <input type="hidden" name="id" value="{{ . }}">
-          <a onclick="this.parentNode.submit();">
-            <img id="{{ . }}" src="/image/{{ . }}" />
-          </a>
-        </form>
+        <img id="{{ . }}" src="/image/{{ . }}" />
       {{ end }}
       </div>
     </main>
@@ -72,6 +86,5 @@
         Made with <a href="https://simplecss.org/">simple.css</a>
       </p>
     </footer>
-
   </body>
 </html>
