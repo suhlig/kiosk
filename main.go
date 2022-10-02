@@ -19,6 +19,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"uhlig.it/kiosk/controller"
 	"uhlig.it/kiosk/script"
+	"uhlig.it/kiosk/videocore"
 )
 
 type options struct {
@@ -142,6 +143,7 @@ func main() {
 	http.Handle("/pause", createPauseHandler(kiosk))
 	http.Handle("/resume", createResumeHandler(kiosk))
 	http.Handle("/updates", createUpdateHandler(kiosk))
+	http.Handle("/backlight", createBacklightHandlers())
 
 	go func() {
 		log.Printf("HTTP control server starting at http://%v\n", opts.HttpBindAddress)
@@ -289,4 +291,113 @@ func createUpdateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 			f.Flush()
 		}
 	}
+}
+
+func createBacklightHandlers() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			backlightGetHandler(w, r)
+		case http.MethodPost:
+			backlightPostHandler(w, r)
+		default:
+			http.Error(w, "Only GET or POST allowed here", http.StatusMethodNotAllowed)
+			return
+		}
+	}
+}
+
+func backlightGetHandler(w http.ResponseWriter, r *http.Request) {
+	displayStati, err := eachDisplay(func(id uint8) (bool, error) {
+		return videocore.GetBacklight(id)
+	})
+
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Unable to get display status", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(displayStati)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Unable to encode display status", http.StatusInternalServerError)
+		return
+	}
+}
+
+func backlightPostHandler(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+
+	if err != nil {
+		log.Printf("HTTP Could not parse form parameters: %v", err)
+		http.Error(w, "Could not parse form parameters", http.StatusUnprocessableEntity)
+		return
+	}
+
+	status := r.FormValue("status")
+	log.Printf("HTTP Setting backlight of all displays to %v\n", status)
+
+	var displayStati []*videocore.DisplayStatus
+
+	switch status {
+	case "0", "off", "false":
+		displayStati, err = eachDisplay(func(id uint8) (bool, error) {
+			return videocore.SetBacklight(id, false)
+		})
+	case "1", "on", "true":
+		displayStati, err = eachDisplay(func(id uint8) (bool, error) {
+			return videocore.SetBacklight(id, true)
+		})
+	case "toggle":
+		displayStati, err = eachDisplay(func(id uint8) (bool, error) {
+			return videocore.ToggleBacklight(id)
+		})
+	default:
+		err := fmt.Errorf(`{"error": "unsupported status %v"}`, status)
+		log.Println(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Unable to set display status", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	err = json.NewEncoder(w).Encode(displayStati)
+
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Unable to encode display status", http.StatusInternalServerError)
+		return
+	}
+}
+
+func eachDisplay(callback func(id uint8) (bool, error)) (displayStati []*videocore.DisplayStatus, err error) {
+	displays, err := videocore.GetDisplays()
+
+	if err != nil {
+		return
+	}
+
+	for _, id := range displays {
+		var status bool
+		status, err = callback(id)
+
+		if err != nil {
+			return
+		}
+
+		displayStati = append(displayStati, &videocore.DisplayStatus{
+			ID:     id,
+			Status: status,
+		})
+	}
+
+	return
 }

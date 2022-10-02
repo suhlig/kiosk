@@ -56,9 +56,10 @@ Example:
 
 # TODO
 
+- If displays are powered off, power-up the controller if touched (catching a click in any part of the page)
+- Update the status of the power checkbox if changed on the server side
 - stream image updates (no need to reload images)
 - keep updating screenshots while switching is paused (may be impossible)
-- add backlight controls to controller (expose via HTTP POST)
 - make the current page the one shown when loading the controller
 - add another service to run the kiosk controller on the touch screen:
 

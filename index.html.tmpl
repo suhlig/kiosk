@@ -19,6 +19,18 @@
       }
     }
 
+    function updateBacklightButton(caller, stati) {
+      // If all displays have the same status, set it to that one.
+      // Otherwise, set element.indeterminate = true;
+      if (stati.every((e, _, all) => e.status === all[0].status)) {
+        console.log("All displays are " + stati[0].status);
+        caller.checked = stati[0].status;
+      } else {
+        console.log("NOT all displays are the same");
+        caller.indeterminate = true;
+      }
+    }
+
     function toggleTabSwitching(caller, action) {
       event.preventDefault();
 
@@ -28,6 +40,21 @@
       })
       .then(res => res.text())
       .then(html => updateTabSwitchingButton(caller, JSON.parse(html)))
+      .catch(err => console.error(err));
+
+      return false;
+    }
+
+    function toggleBacklight(caller) {
+      event.preventDefault();
+
+      fetch('/backlight', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: "status=toggle",
+      })
+      .then(res => res.text())
+      .then(html => updateBacklightButton(caller, JSON.parse(html)))
       .catch(err => console.error(err));
 
       return false;
@@ -67,6 +94,7 @@
       {{ else }}
         <a id="tabSwitchingButton" onclick="toggleTabSwitching(this, 'resume')">Resume</a>
       {{ end }}
+        <input type="checkbox" id="backlightButton" onclick="toggleBacklight(this)"/>
       </nav>
     </header>
     <main>
