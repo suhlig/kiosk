@@ -50,33 +50,33 @@ var opts options
 var htmlAssets embed.FS
 
 func main() {
-	log.SetFlags(0) // no timestamp etc. - we have systemd's timestamps in the log anyway
+	logger := log.New(os.Stderr, "MAIN ", 0)
 
 	_, err := flags.Parse(&opts)
 
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	if opts.Version {
-		log.Printf(getProgramVersion())
+		logger.Println(getProgramVersion())
 		os.Exit(0)
 	}
 
 	if opts.Verbose {
-		log.Printf("MAIN Starting with options: %v\n", opts)
+		logger.Printf("starting with options: %v\n", opts)
 	}
 
 	var scriptBytes []byte
 
 	if opts.Args.Scriptfile == "" {
 		if opts.Verbose {
-			log.Println("MAIN Reading script from STDIN")
+			log.Println("Reading script from STDIN")
 		}
 		scriptBytes, err = io.ReadAll(os.Stdin)
 	} else {
 		if opts.Verbose {
-			log.Printf("MAIN Reading script from %v\n", opts.Args.Scriptfile)
+			log.Printf("Reading script from %v\n", opts.Args.Scriptfile)
 		}
 		scriptBytes, err = os.ReadFile(opts.Args.Scriptfile)
 	}
@@ -91,10 +91,13 @@ func main() {
 		log.Fatalf("Could not parse scriptfile %v: %v\n", opts.Args.Scriptfile, err)
 	}
 
+	statusUpdates := make(chan controller.StatusUpdate, 10)
+
 	kiosk := controller.NewKiosk().
 		WithInterval(opts.Interval).
 		WithFullScreen(opts.Kiosk).
-		WithHeadless(opts.Headless)
+		WithHeadless(opts.Headless).
+		WithStatusUpdates(statusUpdates)
 
 	for _, cf := range opts.ChromeFlags {
 		key, value, found := strings.Cut(cf, "=")
@@ -108,7 +111,7 @@ func main() {
 
 	for _, tab := range tabs {
 		if opts.Verbose {
-			log.Printf("MAIN Performing actions for tab %s:\n", tab)
+			log.Printf("Performing actions for tab %s:\n", tab)
 
 			for _, a := range tab.Steps {
 				log.Printf("       * %s\n", a)
@@ -123,7 +126,7 @@ func main() {
 	}
 
 	if opts.Verbose {
-		log.Println("MAIN Starting tab switching")
+		logger.Println("starting tab switching")
 	}
 
 	kiosk.StartTabSwitching()
@@ -137,13 +140,15 @@ func main() {
 		close(quitProgram)
 	}()
 
-	http.Handle("/", createRootHandler(kiosk))
-	http.Handle("/image/", createImageHandler(kiosk))
-	http.Handle("/activate/", createActivateHandler(kiosk))
-	http.Handle("/pause", createPauseHandler(kiosk))
-	http.Handle("/resume", createResumeHandler(kiosk))
-	http.Handle("/updates", createUpdateHandler(kiosk))
-	http.Handle("/backlight", createBacklightHandlers())
+	weblogger := log.New(os.Stderr, "WEB ", 0)
+
+	http.Handle("/", createRootHandler(kiosk, weblogger))
+	http.Handle("/image/", createImageHandler(kiosk, weblogger))
+	http.Handle("/activate/", createActivateHandler(kiosk, weblogger))
+	http.Handle("/pause", createPauseHandler(kiosk, weblogger))
+	http.Handle("/resume", createResumeHandler(kiosk, weblogger))
+	http.Handle("/updates", createUpdateHandler(kiosk, weblogger, statusUpdates))
+	http.Handle("/backlight", createBacklightHandlers(weblogger, statusUpdates))
 
 	go func() {
 		log.Printf("HTTP control server starting at http://%v\n", opts.HttpBindAddress)
@@ -165,14 +170,14 @@ func getProgramName() string {
 }
 
 func getProgramVersion() string {
-	return fmt.Sprintf("%s %s (%s), built on %s\n", getProgramName(), version, commit, date)
+	return fmt.Sprintf("%s %s (%s), built on %s", getProgramName(), version, commit, date)
 }
 
-func createRootHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+func createRootHandler(kiosk *controller.Kiosk, logger *log.Logger) http.HandlerFunc {
 	tmpl, err := template.ParseFS(htmlAssets, "index.html.tmpl")
 
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -190,15 +195,16 @@ func createRootHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	}
 }
 
-func createImageHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+func createImageHandler(kiosk *controller.Kiosk, logger *log.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		imageID := strings.TrimPrefix(r.URL.Path, "/image/")
 
 		img, found := kiosk.GetImage(imageID)
 
 		if !found {
-			http.NotFound(w, r)
-			fmt.Fprintf(w, "No image for target ID %v", imageID)
+			msg := fmt.Sprintf("no image for target ID %v", imageID)
+			logger.Println(msg)
+			http.Error(w, msg, http.StatusNotFound)
 			return
 		}
 
@@ -207,30 +213,30 @@ func createImageHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	}
 }
 
-func createActivateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+func createActivateHandler(kiosk *controller.Kiosk, logger *log.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "Only POST allowed here", http.StatusMethodNotAllowed)
+			http.Error(w, `{"error": "Only POST allowed here"}`, http.StatusMethodNotAllowed)
 			return
 		}
 
 		if err := r.ParseForm(); err != nil {
-			log.Printf("HTTP Could not parse form parameters: %v", err)
-			http.Error(w, "Could not parse form parameters", http.StatusUnprocessableEntity)
+			logger.Printf("could not parse form parameters: %v", err)
+			http.Error(w, `{"error": "could not parse form parameters"}`, http.StatusUnprocessableEntity)
 			return
 		}
 
 		targetID := r.FormValue("id")
 
 		if opts.Verbose {
-			log.Printf("HTTP Switching to tab %v", targetID)
+			logger.Printf("switching to tab %v", targetID)
 		}
 
 		err := kiosk.SwitchToTab(targetID)
 
 		if err != nil {
-			log.Printf("HTTP Could not switch to tab: %v", err)
-			http.Error(w, "Could not switch to tab", http.StatusInternalServerError)
+			logger.Printf("could not switch to tab: %v", err)
+			http.Error(w, `{"error": "could not switch to tab"}`, http.StatusInternalServerError)
 			return
 		}
 
@@ -238,14 +244,14 @@ func createActivateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	}
 }
 
-func createPauseHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+func createPauseHandler(kiosk *controller.Kiosk, logger *log.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "Only POST allowed here", http.StatusMethodNotAllowed)
+			http.Error(w, `{"error": "Only POST allowed here"}`, http.StatusMethodNotAllowed)
 			return
 		}
 
-		log.Println("HTTP Pausing tab switching")
+		logger.Println("pausing tab switching")
 		kiosk.PauseTabSwitching()
 		w.WriteHeader(http.StatusCreated)
 		w.Header().Set("Content-Type", "application/json")
@@ -253,14 +259,14 @@ func createPauseHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	}
 }
 
-func createResumeHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+func createResumeHandler(kiosk *controller.Kiosk, logger *log.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "Only POST allowed here", http.StatusMethodNotAllowed)
+			http.Error(w, `{"error": "Only POST allowed here"}`, http.StatusMethodNotAllowed)
 			return
 		}
 
-		log.Println("HTTP Resuming tab switching")
+		logger.Println("resuming tab switching")
 		kiosk.StartTabSwitching()
 		w.WriteHeader(http.StatusCreated)
 		w.Header().Set("Content-Type", "application/json")
@@ -268,7 +274,7 @@ func createResumeHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	}
 }
 
-func createUpdateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
+func createUpdateHandler(kiosk *controller.Kiosk, logger *log.Logger, statusUpdates chan controller.StatusUpdate) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -278,7 +284,7 @@ func createUpdateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 
 		timeout := time.After(1 * time.Second)
 		select {
-		case event := <-kiosk.StatusUpdates:
+		case event := <-statusUpdates:
 			var buf bytes.Buffer
 			enc := json.NewEncoder(&buf)
 			enc.Encode(event)
@@ -293,51 +299,57 @@ func createUpdateHandler(kiosk *controller.Kiosk) http.HandlerFunc {
 	}
 }
 
-func createBacklightHandlers() http.HandlerFunc {
+func createBacklightHandlers(logger *log.Logger, statusUpdates chan controller.StatusUpdate) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			backlightGetHandler(w, r)
+			backlightGetHandler(w, r, logger, statusUpdates)
 		case http.MethodPost:
-			backlightPostHandler(w, r)
+			backlightPostHandler(w, r, logger, statusUpdates)
 		default:
-			http.Error(w, "Only GET or POST allowed here", http.StatusMethodNotAllowed)
+			http.Error(w, `{"error": "Only GET or POST allowed here"}`, http.StatusMethodNotAllowed)
 			return
 		}
 	}
 }
 
-func backlightGetHandler(w http.ResponseWriter, r *http.Request) {
+func backlightGetHandler(w http.ResponseWriter, r *http.Request, logger *log.Logger, statusUpdates chan controller.StatusUpdate) {
 	displayStati, err := eachDisplay(func(id uint8) (bool, error) {
 		return videocore.GetBacklight(id)
 	})
 
 	if err != nil {
-		log.Println(err)
-		http.Error(w, "Unable to get display status", http.StatusInternalServerError)
+		logger.Println(err)
+		http.Error(w, `{"error": "unable to get display status"}`, http.StatusInternalServerError)
 		return
 	}
 
+	update := controller.StatusUpdate{
+		DisplayStati: displayStati,
+	}
+
+	statusUpdates <- update
+
 	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(displayStati)
+	err = json.NewEncoder(w).Encode(update)
 	if err != nil {
-		log.Println(err)
-		http.Error(w, "Unable to encode display status", http.StatusInternalServerError)
+		logger.Println(err)
+		http.Error(w, `{"error": "unable to encode display status"}`, http.StatusInternalServerError)
 		return
 	}
 }
 
-func backlightPostHandler(w http.ResponseWriter, r *http.Request) {
+func backlightPostHandler(w http.ResponseWriter, r *http.Request, logger *log.Logger, statusUpdates chan controller.StatusUpdate) {
 	err := r.ParseForm()
 
 	if err != nil {
-		log.Printf("HTTP Could not parse form parameters: %v", err)
-		http.Error(w, "Could not parse form parameters", http.StatusUnprocessableEntity)
+		logger.Printf("could not parse form parameters: %v", err)
+		http.Error(w, `{"error": "Could not parse form parameters"}`, http.StatusUnprocessableEntity)
 		return
 	}
 
 	status := r.FormValue("status")
-	log.Printf("HTTP Setting backlight of all displays to %v\n", status)
+	logger.Printf("setting backlight of all displays to %v\n", status)
 
 	var displayStati []*videocore.DisplayStatus
 
@@ -355,25 +367,31 @@ func backlightPostHandler(w http.ResponseWriter, r *http.Request) {
 			return videocore.ToggleBacklight(id)
 		})
 	default:
-		err := fmt.Errorf(`{"error": "unsupported status %v"}`, status)
-		log.Println(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		msg := fmt.Sprintf("unsupported status %v", status)
+		logger.Println(msg)
+		http.Error(w, fmt.Sprintf(`{"error": "%v"}`, msg), http.StatusInternalServerError)
 		return
 	}
 
 	if err != nil {
-		log.Println(err)
-		http.Error(w, "Unable to set display status", http.StatusInternalServerError)
+		logger.Println(err)
+		http.Error(w, `{"error": "unable to set display status"}`, http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	update := controller.StatusUpdate{
+		DisplayStati: displayStati,
+	}
+
+	statusUpdates <- update
+
 	w.WriteHeader(http.StatusCreated)
-	err = json.NewEncoder(w).Encode(displayStati)
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(update)
 
 	if err != nil {
-		log.Println(err)
-		http.Error(w, "Unable to encode display status", http.StatusInternalServerError)
+		logger.Println(err)
+		http.Error(w, `{"error": "unable to encode display status"}`, http.StatusInternalServerError)
 		return
 	}
 }

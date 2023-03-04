@@ -5,12 +5,13 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kiosk Controller</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
     <link rel="stylesheet" href="https://unpkg.com/flickity@2/dist/flickity.min.css">
     <script src="https://unpkg.com/flickity@2/dist/flickity.pkgd.min.js"></script>
     <script>
-    function updateTabSwitchingButton(caller, status) {
-      if (status["isTabSwitching"]) {
+    function updateTabSwitchingButton(caller, isTabSwitching) {
+      if (isTabSwitching) {
         caller.innerHTML = "Pause";
         caller.setAttribute('onclick', 'toggleTabSwitching(this, \'pause\')')
       } else {
@@ -39,7 +40,7 @@
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       })
       .then(res => res.text())
-      .then(html => updateTabSwitchingButton(caller, JSON.parse(html)))
+      .then(json => dispatchStatusUpdate(JSON.parse(json)))
       .catch(err => console.error(err));
 
       return false;
@@ -54,14 +55,34 @@
           body: "status=toggle",
       })
       .then(res => res.text())
-      .then(html => updateBacklightButton(caller, JSON.parse(html)))
+      .then(json => dispatchStatusUpdate(JSON.parse(json)))
       .catch(err => console.error(err));
 
       return false;
     }
 
+    function dispatchStatusUpdate(parsedData) {
+      if ("isTabSwitching" in parsedData) {
+        updateTabSwitchingButton(document.getElementById("tabSwitchingButton"), parsedData["isTabSwitching"]);
+      }
+
+      if ("displayStati" in parsedData) {
+        displayStati = parsedData["displayStati"];
+
+        if (!Object.is(displayStati, null)) {
+          updateBacklightButton(document.getElementById("backlightButton"), displayStati);
+        }
+      }
+    }
+
     new EventSource("/updates").onmessage = (event) => {
-      updateTabSwitchingButton(document.getElementById("tabSwitchingButton"), JSON.parse(event.data));
+      parsedData = JSON.parse(event.data);
+
+      console.group("statusUpdate");
+      console.dir(parsedData);
+      console.groupEnd("statusUpdate");
+
+      dispatchStatusUpdate(parsedData);
     }
 
     window.addEventListener("load", function(event){

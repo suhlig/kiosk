@@ -10,15 +10,17 @@ import (
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 	"uhlig.it/kiosk/script"
+	"uhlig.it/kiosk/videocore"
 )
 
 type StatusUpdate struct {
-	IsTabSwitching bool   `json:"isTabSwitching"`
-	CurrentTab     string `json:"currentTab"`
+	IsTabSwitching bool                       `json:"isTabSwitching"`
+	CurrentTab     string                     `json:"currentTab"`
+	DisplayStati   []*videocore.DisplayStatus `json:"displayStati"`
 }
 
 type Kiosk struct {
-	StatusUpdates    chan StatusUpdate
+	statusUpdates    chan StatusUpdate
 	currentTab       target.ID
 	allContexts      []context.Context
 	images           map[target.ID]*Image
@@ -33,9 +35,8 @@ type Kiosk struct {
 
 func NewKiosk() *Kiosk {
 	return &Kiosk{
-		images:        make(map[target.ID]*Image),
-		extraFlags:    make(map[string]interface{}),
-		StatusUpdates: make(chan StatusUpdate, 10),
+		images:     make(map[target.ID]*Image),
+		extraFlags: make(map[string]interface{}),
 	}
 }
 
@@ -56,6 +57,11 @@ func (k *Kiosk) WithHeadless(headless bool) *Kiosk {
 
 func (k *Kiosk) WithFlag(key string, value interface{}) *Kiosk {
 	k.extraFlags[key] = value
+	return k
+}
+
+func (k *Kiosk) WithStatusUpdates(statusUpdatesChannel chan StatusUpdate) *Kiosk {
+	k.statusUpdates = statusUpdatesChannel
 	return k
 }
 
@@ -119,7 +125,7 @@ func (k *Kiosk) StartTabSwitching() {
 	k.quitTabSwitching = make(chan struct{})
 	go k.switchTabsForever()
 
-	k.StatusUpdates <- StatusUpdate{
+	k.statusUpdates <- StatusUpdate{
 		IsTabSwitching: k.IsTabSwitching(),
 	}
 }
@@ -129,7 +135,7 @@ func (k *Kiosk) PauseTabSwitching() {
 		close(k.quitTabSwitching)
 	}
 
-	k.StatusUpdates <- StatusUpdate{
+	k.statusUpdates <- StatusUpdate{
 		IsTabSwitching: k.IsTabSwitching(),
 	}
 }
@@ -219,9 +225,8 @@ func (k *Kiosk) rootContext() context.Context {
 
 func (k *Kiosk) setCurrentTab(id target.ID) {
 	(*k).currentTab = id
-	k.StatusUpdates <- StatusUpdate{
-		IsTabSwitching: k.IsTabSwitching(),
-		CurrentTab:     id.String(),
+	k.statusUpdates <- StatusUpdate{
+		CurrentTab: id.String(),
 	}
 }
 

@@ -56,6 +56,10 @@ Example:
 
 # TODO
 
+- Deal with default values of controller.StatusUpdate - we don't want to send `IsTabSwitching = false` just because we did not know the current value
+  * pointers (and skip nil pointers)
+  * always query everything (maybe not ideal)
+- At page load, set initial status of display power
 - If displays are powered off, power-up the controller if touched (catching a click in any part of the page)
 - Update the status of the power checkbox if changed on the server side
 - stream image updates (no need to reload images)
