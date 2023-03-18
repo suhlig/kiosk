@@ -3,8 +3,8 @@ module uhlig.it/kiosk
 go 1.19
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20230220211738-2b1ec77315c9
-	github.com/chromedp/chromedp v0.8.7
+	github.com/chromedp/cdproto v0.0.0-20230316232129-6d655b62387e
+	github.com/chromedp/chromedp v0.9.1
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/onsi/ginkgo/v2 v2.1.6
 	github.com/onsi/gomega v1.20.1
