@@ -1,12 +1,11 @@
----
 - name: Kiosk
   hosts: all
-
+  vars: { ansible_user_id: suhlig }
   pre_tasks:
     - name: Program snapshot is up to date
       local_action:
         module: ansible.builtin.command
-        cmd: goreleaser --snapshot --rm-dist
+        cmd: goreleaser --snapshot --clean
         args:
           chdir: "{{ playbook_dir }}"
       become: false
@@ -21,7 +20,6 @@
         and item['type'] is defined and item['type'] == 'Binary'
       loop: "{{ lookup('file', playbook_dir + '/dist/artifacts.json') | from_json }}"
       tags: [ kiosk, goreleaser, binary, path, artifacts ]
-
   tasks:
     - name: Config file is present
       become: true
@@ -39,7 +37,6 @@
         state: restarted
       when: config_copied.changed
       tags: [ kiosk, config, systemd, service ]
-
   roles:
     - role: kiosk
       become: true
