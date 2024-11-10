@@ -9,7 +9,6 @@
         args:
           chdir: "{{ playbook_dir }}"
       become: false
-
     - name: Path to binary is set from artifacts.json
       ansible.builtin.set_fact:
         binary_path: "{{ item['path'] }}"
@@ -30,10 +29,9 @@
         owner: "{{ ansible_user_id }}"
       register: config_copied
       tags: [ kiosk, yaml, config ]
-
     - name: Service is restarted
       systemd:
-        name: kiosk.service
+        name: kiosk
         state: restarted
       when: config_copied.changed
       tags: [ kiosk, config, systemd, service ]
@@ -60,6 +58,6 @@
             - --chrome-flag window-position=800,0
             - /etc/kiosk.yml
           environment:
-            - DISPLAY=:0.0
-            - MQTT_URL="{{ mqtt_url }}"
+            DISPLAY: ":0.0"
+            MQTT_URL: "{{ mqtt_url }}"
       tags: [ kiosk, systemd, service ]
