@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"reflect"
 	"time"
 
@@ -31,6 +31,7 @@ type Kiosk struct {
 	cancelAllocator  context.CancelFunc
 	cancelContext    context.CancelFunc
 	extraFlags       map[string]interface{}
+	logger           *slog.Logger
 }
 
 func NewKiosk() *Kiosk {
@@ -42,6 +43,11 @@ func NewKiosk() *Kiosk {
 
 func (k *Kiosk) WithInterval(interval time.Duration) *Kiosk {
 	k.interval = interval
+	return k
+}
+
+func (k *Kiosk) WithLogger(logger *slog.Logger) *Kiosk {
+	k.logger = logger
 	return k
 }
 
@@ -187,7 +193,10 @@ func (k *Kiosk) createFirstTab(tab *script.Tab) error {
 	ctx, cancelContext := chromedp.NewContext(
 		allocCtx,
 		chromedp.WithLogf(func(msg string, values ...interface{}) {
-			log.Printf(msg, values...)
+			k.logger.Info(fmt.Sprintf(msg, values...))
+		}),
+		chromedp.WithErrorf(func(msg string, values ...interface{}) {
+			k.logger.Error(fmt.Sprintf(msg, values...))
 		}),
 	)
 
@@ -257,6 +266,8 @@ func (k *Kiosk) switchTabsForever() error {
 
 func (k *Kiosk) switchToTab(targetContext context.Context) error {
 	targetID := chromedp.FromContext(targetContext).Target.TargetID
+
+	k.logger.Info("switching to", "tab", targetID)
 
 	// TODO do we really need the ActionFunc?
 	err := chromedp.Run(k.rootContext(), chromedp.ActionFunc(func(ctx context.Context) error {

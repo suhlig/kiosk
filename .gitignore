@@ -2,4 +2,5 @@
 .envrc
 backlight
 dist
+example.yml
 main
