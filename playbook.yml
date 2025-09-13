@@ -36,6 +36,9 @@
       when: config_copied.changed
       tags: [ kiosk, config, systemd, service ]
   roles:
+    - role: suhlig.foundation.main
+      become: true
+      tags: [ suhlig, bootstrap, foundation ]
     - role: kiosk
       become: true
       tags: [ kiosk, software ]
