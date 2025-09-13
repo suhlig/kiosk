@@ -39,6 +39,13 @@
     - role: suhlig.foundation.main
       become: true
       tags: [ suhlig, bootstrap, foundation ]
+    - role: suhlig.foundation.raspberry_pi
+      become: true
+      tags: [ suhlig, raspi, raspberry, pi ]
+    # TODO Re-add once everything else is ok again
+    # - role: artis3n.tailscale
+    #   tags: [ tailscale ]
+    #   vars: { tailscale_args: --accept-routes }
     - role: kiosk
       become: true
       tags: [ kiosk, software ]
