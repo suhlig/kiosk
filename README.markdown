@@ -1,5 +1,7 @@
 # Kiosk
 
+> **Note:** This project has been archived and is no longer maintained.
+
 Turns a Raspberry Pi into a simple browser kiosk. A Go program controls a full-screen Chromium browser.
 
 # Preparation
